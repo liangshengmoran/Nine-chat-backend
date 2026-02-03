@@ -66,4 +66,45 @@ export class ChatController {
   updateRoomInfo(@Body() params, @Request() req) {
     return this.ChatService.updateRoomInfo(params, req.payload);
   }
+
+  // ==================== 房管管理 API ====================
+
+  @Post('/moderator/add')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '添加房管',
+    description: '房主或管理员可以为房间添加房管，房管拥有切歌、移除歌曲等权限',
+  })
+  @ApiResponse({ status: 200, description: '添加成功' })
+  @ApiResponse({ status: 400, description: '参数错误或用户已是房管' })
+  @ApiResponse({ status: 401, description: '未授权' })
+  @ApiResponse({ status: 403, description: '无权限添加房管' })
+  addModerator(@Body() params, @Request() req) {
+    return this.ChatService.addModerator(params, req.payload);
+  }
+
+  @Post('/moderator/remove')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '移除房管',
+    description: '房主或管理员可以移除房间的房管',
+  })
+  @ApiResponse({ status: 200, description: '移除成功' })
+  @ApiResponse({ status: 400, description: '参数错误或用户不是房管' })
+  @ApiResponse({ status: 401, description: '未授权' })
+  @ApiResponse({ status: 403, description: '无权限移除房管' })
+  removeModerator(@Body() params, @Request() req) {
+    return this.ChatService.removeModerator(params, req.payload);
+  }
+
+  @Get('/moderator/list')
+  @ApiOperation({
+    summary: '获取房管列表',
+    description: '获取指定房间的所有房管列表',
+  })
+  @ApiQuery({ name: 'room_id', required: true, description: '房间 ID' })
+  @ApiResponse({ status: 200, description: '获取成功' })
+  getModeratorList(@Query() params) {
+    return this.ChatService.getModeratorList(params);
+  }
 }

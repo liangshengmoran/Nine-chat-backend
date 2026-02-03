@@ -44,7 +44,7 @@ Authorization: Bearer <token>
   )
   .addTag('User', '用户模块 - 注册、登录、个人信息管理')
   .addTag('Chat', '聊天模块 - 房间管理、消息历史、表情包搜索')
-  .addTag('Music', '音乐模块 - 歌曲搜索、收藏、热门推荐')
+  .addTag('Music - 音乐模块', '歌曲搜索、收藏、热门推荐')
   .addTag('Upload', '上传模块 - 文件/图片上传')
   .build();
 

@@ -1,4 +1,5 @@
 import { RoomEntity } from './room.entity';
+import { RoomModeratorEntity } from './room-moderator.entity';
 import { UserEntity } from './../user/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MessageEntity } from './message.entity';
@@ -15,6 +16,8 @@ export class ChatService {
     private readonly UserModel: Repository<UserEntity>,
     @InjectRepository(RoomEntity)
     private readonly RoomModel: Repository<RoomEntity>,
+    @InjectRepository(RoomModeratorEntity)
+    private readonly ModeratorModel: Repository<RoomModeratorEntity>,
   ) {}
 
   async onModuleInit() {
@@ -175,5 +178,147 @@ export class ChatService {
     whiteListKeys.forEach((key) => Object.keys(params).includes(key) && (updateInfo[key] = params[key]));
     await this.RoomModel.update({ room_id }, updateInfo);
     return true;
+  }
+
+  // ==================== 房管管理 ====================
+
+  /**
+   * @desc 添加房管
+   * @param params AddModeratorDto
+   * @param payload JWT payload
+   */
+  async addModerator(params, payload) {
+    const { room_id, user_id, remark } = params;
+    const { user_id: operator_id, user_role } = payload;
+
+    // 检查房间是否存在
+    const room = await this.RoomModel.findOne({ where: { room_id } });
+    if (!room) {
+      throw new HttpException(`房间 [${room_id}] 不存在`, HttpStatus.BAD_REQUEST);
+    }
+
+    // 检查操作权限：只有房主、管理员、超管可以添加房管
+    const isRoomOwner = room.room_user_id === operator_id;
+    const isAdmin = ['super', 'admin'].includes(user_role);
+    if (!isRoomOwner && !isAdmin) {
+      throw new HttpException('您没有权限为该房间添加房管', HttpStatus.FORBIDDEN);
+    }
+
+    // 检查目标用户是否存在
+    const targetUser = await this.UserModel.findOne({ where: { id: user_id } });
+    if (!targetUser) {
+      throw new HttpException(`用户 [${user_id}] 不存在`, HttpStatus.BAD_REQUEST);
+    }
+
+    // 不能把自己设为房管
+    if (user_id === operator_id) {
+      throw new HttpException('不能将自己设为房管', HttpStatus.BAD_REQUEST);
+    }
+
+    // 检查是否已经是房管
+    const existing = await this.ModeratorModel.findOne({
+      where: { room_id, user_id, status: 1 },
+    });
+    if (existing) {
+      throw new HttpException('该用户已经是此房间的房管', HttpStatus.BAD_REQUEST);
+    }
+
+    // 添加房管
+    await this.ModeratorModel.save({
+      room_id,
+      user_id,
+      appointed_by: operator_id,
+      remark: remark || '',
+      status: 1,
+    });
+
+    return { message: '添加房管成功', user_id, room_id };
+  }
+
+  /**
+   * @desc 移除房管
+   * @param params RemoveModeratorDto
+   * @param payload JWT payload
+   */
+  async removeModerator(params, payload) {
+    const { room_id, user_id } = params;
+    const { user_id: operator_id, user_role } = payload;
+
+    // 检查房间是否存在
+    const room = await this.RoomModel.findOne({ where: { room_id } });
+    if (!room) {
+      throw new HttpException(`房间 [${room_id}] 不存在`, HttpStatus.BAD_REQUEST);
+    }
+
+    // 检查操作权限：只有房主、管理员、超管可以移除房管
+    const isRoomOwner = room.room_user_id === operator_id;
+    const isAdmin = ['super', 'admin'].includes(user_role);
+    if (!isRoomOwner && !isAdmin) {
+      throw new HttpException('您没有权限移除该房间的房管', HttpStatus.FORBIDDEN);
+    }
+
+    // 检查是否是房管
+    const existing = await this.ModeratorModel.findOne({
+      where: { room_id, user_id, status: 1 },
+    });
+    if (!existing) {
+      throw new HttpException('该用户不是此房间的房管', HttpStatus.BAD_REQUEST);
+    }
+
+    // 移除房管（软删除，将状态设为0）
+    await this.ModeratorModel.update({ id: existing.id }, { status: 0 });
+
+    return { message: '移除房管成功', user_id, room_id };
+  }
+
+  /**
+   * @desc 获取房间的房管列表
+   * @param params ModeratorListDto
+   */
+  async getModeratorList(params) {
+    const { room_id } = params;
+
+    const moderators = await this.ModeratorModel.find({
+      where: { room_id, status: 1 },
+      order: { id: 'ASC' },
+    });
+
+    // 获取房管的用户信息
+    if (moderators.length === 0) {
+      return [];
+    }
+
+    const userIds = moderators.map((m) => m.user_id);
+    const users = await this.UserModel.find({
+      where: { id: In(userIds) },
+      select: ['id', 'user_nick', 'user_avatar', 'user_role'],
+    });
+
+    // 合并房管信息和用户信息
+    return moderators.map((m) => {
+      const user = users.find((u) => u.id === m.user_id);
+      return {
+        id: m.id,
+        room_id: m.room_id,
+        user_id: m.user_id,
+        user_nick: user?.user_nick || '',
+        user_avatar: user?.user_avatar || '',
+        appointed_by: m.appointed_by,
+        remark: m.remark,
+        created_at: m.createdAt,
+      };
+    });
+  }
+
+  /**
+   * @desc 检查用户是否是指定房间的房管
+   * @param room_id 房间ID
+   * @param user_id 用户ID
+   */
+  async isModerator(room_id: number, user_id: number): Promise<boolean> {
+    const moderator = await this.ModeratorModel.findOne({
+      where: { room_id, user_id, status: 1 },
+    });
+    return !!moderator;
   }
 }
