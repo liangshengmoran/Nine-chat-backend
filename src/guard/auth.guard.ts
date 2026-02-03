@@ -1,10 +1,4 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  HttpException,
-  Injectable,
-  HttpStatus,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, HttpException, Injectable, HttpStatus } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import { secret, whiteList } from 'src/config/jwt';
 
@@ -19,7 +13,12 @@ export class AuthGuard implements CanActivate {
     }
 
     const isGet = route.methods.get;
-    const token = headers.authorization || request.headers.authorization;
+    let token = headers.authorization || request.headers.authorization;
+
+    // 支持 Bearer Token 格式
+    if (token && token.startsWith('Bearer ')) {
+      token = token.slice(7);
+    }
 
     if (token) {
       const payload = await this.verifyToken(token, secret);

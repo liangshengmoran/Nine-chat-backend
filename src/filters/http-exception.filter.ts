@@ -1,11 +1,4 @@
-import {
-  ArgumentsHost,
-  Catch,
-  ExceptionFilter,
-  HttpException,
-  HttpStatus,
-  Logger,
-} from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { formatDate } from 'src/utils/date';
 
 @Catch(HttpException)
@@ -18,10 +11,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const exceptionRes: any = exception.getResponse();
 
     /* 正常情况是个对象，为了简写可以只传入一个字符串错误即可 */
-    const message =
-      exceptionRes.constructor === Object
-        ? exceptionRes['message']
-        : exceptionRes;
+    const message = exceptionRes.constructor === Object ? exceptionRes['message'] : exceptionRes;
     // const { message } = exceptionRes;
     const statusCode = exception.getStatus() || 400;
     /* 是数组就返回错误里的第一条即可，不是就返回字符串 */
@@ -32,10 +22,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       url: request.originalUrl,
       timestamp: new Date().toLocaleDateString(),
     };
-    const status =
-      exception instanceof HttpException
-        ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+    const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
 
     Logger.error(
       `【${formatDate(Date.now())}】${request.method} ${request.url}`,

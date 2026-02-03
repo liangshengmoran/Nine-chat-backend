@@ -21,20 +21,20 @@ export class ChatService {
     await this.initOfficialRoom();
   }
 
-  /* 初始化官方直播间 */
+  /* 初始化官方聊天室 */
   async initOfficialRoom() {
     const count = await this.RoomModel.count({ where: { room_id: 888 } });
     if (count === 0) {
       const basicRoomInfo = {
-        room_name: '官方直播间',
+        room_name: '官方聊天室',
         room_user_id: 1,
         room_id: 888,
-        room_logo: '/basic/room-default-logo.png',
+        room_logo: '/basic/room-default-logo.gif',
         room_need_password: 1,
-        room_notice: '欢迎来到官方直播间',
+        room_notice: '欢迎来到官方聊天室',
       };
       const room = await this.RoomModel.save(basicRoomInfo);
-      Logger.debug('官方直播间初始化成功', room);
+      Logger.debug('官方聊天室初始化成功', room);
     }
   }
 
@@ -54,12 +54,8 @@ export class ChatService {
 
     messageInfo.forEach((t) => {
       !userIds.includes(t.user_id) && userIds.push(t.user_id);
-      !userIds.includes(t.quote_user_id) &&
-        t.quote_user_id &&
-        userIds.push(t.quote_user_id);
-      !quoteMessageIds.includes(t.quote_message_id) &&
-        t.quote_message_id &&
-        quoteMessageIds.push(t.quote_message_id);
+      !userIds.includes(t.quote_user_id) && t.quote_user_id && userIds.push(t.quote_user_id);
+      !quoteMessageIds.includes(t.quote_message_id) && t.quote_message_id && quoteMessageIds.push(t.quote_message_id);
     });
 
     const userInfoList = await this.UserModel.find({
@@ -72,22 +68,14 @@ export class ChatService {
     /* 相关联的引用消息的信息 */
     const messageInfoList = await this.MessageModel.find({
       where: { id: In(quoteMessageIds) },
-      select: [
-        'id',
-        'message_content',
-        'message_type',
-        'user_id',
-        'message_status',
-      ],
+      select: ['id', 'message_content', 'message_type', 'user_id', 'message_status'],
     });
 
     /* TODO 消息列表中的用户 */
 
     /* 对引用消息通过user_id拿到此条消息的user_nick 并修改字段名称 */
     messageInfoList.forEach((t: any) => {
-      t.quote_user_nick = userInfoList.find(
-        (k: any) => k.user_id === t.user_id,
-      )['user_nick'];
+      t.quote_user_nick = userInfoList.find((k: any) => k.user_id === t.user_id)['user_nick'];
       t.quote_message_content = JSON.parse(t.message_content);
       t.quote_message_type = t.message_type;
       t.quote_message_status = t.message_status;
@@ -101,12 +89,16 @@ export class ChatService {
     messageInfo.forEach((t: any) => {
       t.user_info = userInfoList.find((k: any) => k.user_id === t.user_id);
       t.quote_info = messageInfoList.find((k) => k.id === t.quote_message_id);
-      t.message_status === -1 &&
-        (t.message_content = `${t.user_info.user_nick}撤回了一条消息`);
+      t.message_status === -1 && (t.message_content = `${t.user_info.user_nick}撤回了一条消息`);
       t.message_status === -1 && (t.message_type = 'info');
-      t.message_content &&
-        t.message_status === 1 &&
-        (t.message_content = t.message_content);
+      /* 正常消息需要反序列化 message_content */
+      if (t.message_content && t.message_status === 1) {
+        try {
+          t.message_content = JSON.parse(t.message_content);
+        } catch (e) {
+          // 如果解析失败，保持原样
+        }
+      }
     });
 
     return messageInfo.reverse();
@@ -115,9 +107,7 @@ export class ChatService {
   /* 在线搜索表情包 */
   async emoticon(params) {
     const { keyword } = params;
-    const url = `https://www.pkdoutu.com/search?keyword=${encodeURIComponent(
-      keyword,
-    )}`;
+    const url = `https://www.doutupk.com/search?keyword=${encodeURIComponent(keyword)}`;
     const $ = await requestHtml(url);
     const list = [];
     $('.search-result .pic-content .random_picture a').each((index, node) => {
@@ -139,26 +129,17 @@ export class ChatService {
       select: ['user_room_id', 'user_avatar'],
     });
     if (user_room_id) {
-      throw new HttpException(
-        `您已经创建过了，拒绝重复创建！`,
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException(`您已经创建过了，拒绝重复创建！`, HttpStatus.BAD_REQUEST);
     }
     const count = await this.RoomModel.count({ where: { room_id } });
     if (count) {
-      throw new HttpException(
-        `房间ID[${room_id}]已经被注册了，换一个试试吧！`,
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException(`房间ID[${room_id}]已经被注册了，换一个试试吧！`, HttpStatus.BAD_REQUEST);
     }
     /* 客户端没传房间头像就默认使用用户的头像 */
     const room = Object.assign({ room_user_id }, params);
     !room.room_logo && (room.room_logo = user_avatar);
     await this.RoomModel.save(room);
-    await this.UserModel.update(
-      { id: room_user_id },
-      { user_room_id: room_id },
-    );
+    await this.UserModel.update({ id: room_user_id }, { user_room_id: room_id });
     return true;
   }
 
@@ -167,15 +148,7 @@ export class ChatService {
     const { room_id } = params;
     return await this.RoomModel.findOne({
       where: { room_id },
-      select: [
-        'room_id',
-        'room_user_id',
-        'room_logo',
-        'room_bg_img',
-        'room_need_password',
-        'room_notice',
-        'room_name',
-      ],
+      select: ['room_id', 'room_user_id', 'room_logo', 'room_bg_img', 'room_need_password', 'room_notice', 'room_name'],
     });
   }
 
@@ -187,10 +160,7 @@ export class ChatService {
       where: { room_user_id: user_id, room_id },
     });
     if (!room) {
-      throw new HttpException(
-        `您无权操作当前房间：房间ID[${room_id}]`,
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException(`您无权操作当前房间：房间ID[${room_id}]`, HttpStatus.BAD_REQUEST);
     }
     /* 个人修改允许修改这些字段 */
     const whiteListKeys = [
@@ -202,10 +172,7 @@ export class ChatService {
       'room_logo',
     ];
     const updateInfo = {};
-    whiteListKeys.forEach(
-      (key) =>
-        Object.keys(params).includes(key) && (updateInfo[key] = params[key]),
-    );
+    whiteListKeys.forEach((key) => Object.keys(params).includes(key) && (updateInfo[key] = params[key]));
     await this.RoomModel.update({ room_id }, updateInfo);
     return true;
   }

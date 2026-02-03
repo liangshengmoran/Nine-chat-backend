@@ -1,4 +1,5 @@
 import { RoomEntity } from './room.entity';
+import { RoomModeratorEntity } from './room-moderator.entity';
 import { MusicEntity } from './../music/music.entity';
 import { MessageEntity } from './message.entity';
 import { UserEntity } from './../user/user.entity';
@@ -9,14 +10,7 @@ import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([
-      UserEntity,
-      MessageEntity,
-      MusicEntity,
-      RoomEntity,
-    ]),
-  ],
+  imports: [TypeOrmModule.forFeature([UserEntity, MessageEntity, MusicEntity, RoomEntity, RoomModeratorEntity])],
   controllers: [ChatController],
   providers: [ChatService, WsChatGateway],
 })

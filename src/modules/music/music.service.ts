@@ -3,7 +3,14 @@ import { MusicEntity } from './music.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { Repository } from 'typeorm';
-import { getAlbumList, initMusicSheet, searchMusic } from 'src/utils/spider';
+import {
+  getAlbumList,
+  initMusicSheet,
+  getHotMusic,
+  searchMusicUnified,
+  getMusicSrcUnified,
+  getMusicDetailUnified,
+} from 'src/utils/spider';
 import { addAlbumDto } from './dto/addAlbum.dto';
 
 @Injectable()
@@ -78,49 +85,24 @@ export class MusicService {
     return musicList;
   }
 
-  /* 查询搜索音乐 */
+  /* 查询搜索音乐 - 支持多音源 */
   async search(params) {
-    const { keyword } = params;
-    let musicList: any;
+    const { keyword, page = 1, pagesize = 30, source = 'kugou' } = params;
     try {
-      const decodeKeyword = encodeURIComponent(keyword);
-      const url = `https://kuwo.cn/search/searchMusicBykeyWord?vipver=1&client=kt&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json&mobi=1&issubtitle=1&show_copyright_off=1&pn=0&rn=99&all=${decodeKeyword}`;
-      const res: any = await searchMusic(url);
-      console.log('res.abslist.length: ', res.abslist.length);
-      if (res.abslist.length) {
-        musicList = res.abslist.map((t, index) => {
-          const {
-            DC_TARGETID: music_mid,
-            DURATION: music_duration,
-            ALBUM: music_album,
-            ARTIST: music_singer,
-            web_albumpic_short: music_albumpic,
-            web_artistpic_short: music_cover,
-            NAME: music_name,
-            MVFLAG: music_hasmv,
-            payInfo,
-          } = t;
-          const { limitfree, feeType } = payInfo;
-          const isPlay = Number(feeType?.vip) === 0 || Number(limitfree) === 1;
-          return {
-            music_mid,
-            music_duration,
-            music_album,
-            music_singer,
-            music_albumpic: ``,
-            music_cover: music_album
-              ? `https://img2.kuwo.cn/star/albumcover/${music_albumpic}`
-              : `https://img1.kuwo.cn/star/starheads/${music_cover}`,
-            music_name,
-            music_hasmv,
-            isPlay,
-          };
-        });
-      }
+      const result = await searchMusicUnified(keyword, page, pagesize, source);
+      return result.list.map((t) => ({
+        music_mid: t.music_mid,
+        music_duration: t.music_duration,
+        music_album: t.music_album,
+        music_singer: t.music_singer,
+        music_cover: t.music_cover,
+        music_name: t.music_name,
+        source: t.source || source,
+        isPlay: true,
+      }));
     } catch (error) {
       throw new HttpException(`没有搜索到歌曲`, HttpStatus.BAD_REQUEST);
     }
-    return musicList;
   }
 
   /**
@@ -130,7 +112,7 @@ export class MusicService {
    * @returns
    */
   async collectMusic(payload, params) {
-    const { music_mid } = params;
+    const { music_mid, music_name, music_singer, music_album, music_cover, music_albumpic, source } = params;
     const { user_id, user_role } = payload;
     const c = await this.CollectModel.count({
       where: { music_mid, user_id, is_delete: 1 },
@@ -138,14 +120,39 @@ export class MusicService {
     if (c > 0) {
       throw new HttpException(`您已经收藏过这首歌了！`, HttpStatus.BAD_REQUEST);
     }
-    const music = Object.assign({ user_id }, params);
-    await this.CollectModel.save(music);
-    user_role === 'admin' && (music.is_recommend = 1);
+    // 构建收藏记录，确保所有字段都有值
+    const collectData = {
+      user_id,
+      music_mid,
+      music_name: music_name || '',
+      music_singer: music_singer || '',
+      music_album: music_album || '',
+      music_cover: music_cover || music_albumpic || '',
+      music_albumpic: music_albumpic || music_cover || '',
+      source: source || 'kugou',
+    };
+    await this.CollectModel.save(collectData);
+
+    // 管理员收藏的歌曲加入推荐
+    const isRecommend = user_role === 'admin' ? 1 : 0;
+    const musicData = {
+      music_mid,
+      music_name: music_name || '',
+      music_singer: music_singer || '',
+      music_album: music_album || '',
+      music_cover: music_cover || music_albumpic || '',
+      source: source || 'kugou',
+      is_recommend: isRecommend,
+    };
+
     const m = await this.MusicModel.count({ where: { music_mid } });
     if (m) {
-      return await this.MusicModel.update({ music_mid }, { is_recommend: 1 });
+      if (isRecommend) {
+        return await this.MusicModel.update({ music_mid }, { is_recommend: 1 });
+      }
+      return '收藏成功';
     }
-    return await this.MusicModel.save(music);
+    return await this.MusicModel.save(musicData);
   }
 
   /* 获取收藏歌单 */
@@ -169,10 +176,10 @@ export class MusicService {
     const { music_mid } = params;
     const { user_id } = payload;
     const u = await this.CollectModel.findOne({
-      where: { user_id, music_mid },
+      where: { user_id, music_mid, is_delete: 1 },
     });
     if (u) {
-      await this.CollectModel.update({ user_id, music_mid }, { is_delete: -1 });
+      await this.CollectModel.update({ id: u.id }, { is_delete: -1 });
       return '移除完成';
     } else {
       throw new HttpException('无权移除此歌曲！', HttpStatus.BAD_REQUEST);
@@ -180,17 +187,55 @@ export class MusicService {
   }
 
   /**
-   * @desc 获取热门歌曲 拿到当前房主收藏的音乐作为推荐音乐 userId此处为管理房主id，请注意自己预设时候的id
+   * @desc 获取热门歌曲 - 使用酷狗每日推荐接口
    * @returns
    */
   async hot(params) {
-    const { page = 1, pagesize = 30, user_id = 1 } = params;
-    return await this.CollectModel.find({
-      where: { user_id, is_delete: 1 },
-      order: { id: 'DESC' },
-      skip: (page - 1) * pagesize,
-      take: pagesize,
-      cache: true,
-    });
+    const { page = 1, pagesize = 30 } = params;
+    try {
+      const hotMusic = await getHotMusic();
+      // 分页处理
+      const start = (page - 1) * pagesize;
+      const end = start + pagesize;
+      return hotMusic.slice(start, end);
+    } catch (error) {
+      // 如果酷狗接口失败，回退到用户收藏列表
+      const { user_id = 1 } = params;
+      return await this.CollectModel.find({
+        where: { user_id, is_delete: 1 },
+        order: { id: 'DESC' },
+        skip: (page - 1) * pagesize,
+        take: pagesize,
+        cache: true,
+      });
+    }
+  }
+
+  /**
+   * @desc 获取歌曲播放地址
+   * @param mid 歌曲 ID (酷狗hash/网易云id)
+   * @param source 音源
+   */
+  async getPlayUrl(mid: string, source = 'kugou') {
+    try {
+      const result = await getMusicSrcUnified(mid, source);
+      return { play_url: result.url, timeLength: result.timeLength };
+    } catch (error) {
+      throw new HttpException('获取播放地址失败', HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  /**
+   * @desc 获取歌曲详情（包含歌词、封面等）
+   * @param mid 歌曲 ID (酷狗hash/网易云id)
+   * @param source 音源
+   */
+  async getDetail(mid: string, source = 'kugou') {
+    try {
+      const detail = await getMusicDetailUnified(mid, source);
+      return detail;
+    } catch (error) {
+      throw new HttpException('获取歌曲详情失败', HttpStatus.BAD_REQUEST);
+    }
   }
 }

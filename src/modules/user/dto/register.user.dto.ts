@@ -1,11 +1,4 @@
-import {
-  IsNotEmpty,
-  MinLength,
-  MaxLength,
-  IsEmail,
-  IsOptional,
-  IsEnum,
-} from 'class-validator';
+import { IsNotEmpty, MinLength, MaxLength, IsEmail, IsOptional, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
@@ -36,7 +29,7 @@ export class UserRegisterDto {
   user_email: string;
 
   @ApiProperty({
-    example: 'https://img2.baidu.com/it/u=2285567582,1185119578&fm=26&fmt=auto',
+    example: '/basic/default-avatar.gif',
     description: '头像',
     required: false,
   })

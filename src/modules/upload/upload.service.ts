@@ -48,10 +48,7 @@ export class UploadService {
   }
 
   decodeFileName(originalName) {
-    const decodedName = iconv.decode(
-      Buffer.from(originalName, 'binary'),
-      'UTF-8',
-    );
+    const decodedName = iconv.decode(Buffer.from(originalName, 'binary'), 'UTF-8');
     return decodedName;
   }
 }

@@ -1,19 +1,16 @@
 import { formatOnlineUser, formatRoomlist } from '../../utils/tools';
 import { RoomEntity } from './room.entity';
+import { RoomModeratorEntity } from './room-moderator.entity';
 import { MusicEntity } from '../music/music.entity';
 import { MessageEntity } from './message.entity';
 import { UserEntity } from '../user/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { getRandomId } from '../../constant/avatar';
-import { getMusicDetail, getMusicSrc } from 'src/utils/spider';
+import { getMusicDetailUnified, getMusicSrcUnified } from 'src/utils/spider';
 import { getTimeSpace } from 'src/utils/tools';
+import { getEffectiveRole, canCutMusic, canRemoveMusic, getMusicCooldown } from 'src/common/constants/roles';
 
-import {
-  WebSocketGateway,
-  WebSocketServer,
-  SubscribeMessage,
-} from '@nestjs/websockets';
+import { WebSocketGateway, WebSocketServer, SubscribeMessage } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { verifyToken } from 'src/utils/verifyToken';
 
@@ -35,6 +32,8 @@ export class WsChatGateway {
     private readonly MusicModel: Repository<MusicEntity>,
     @InjectRepository(RoomEntity)
     private readonly RoomModel: Repository<RoomEntity>,
+    @InjectRepository(RoomModeratorEntity)
+    private readonly RoomModeratorModel: Repository<RoomModeratorEntity>,
   ) {}
   @WebSocketServer() private socket: Server;
 
@@ -56,8 +55,7 @@ export class WsChatGateway {
     /* 删除此用户记录 */
     delete this.clientIdMap[client.id];
     const { user_id, room_id } = clientInfo;
-    const { on_line_user_list, room_info, room_admin_info } =
-      this.room_list_map[room_id];
+    const { on_line_user_list, room_info, room_admin_info } = this.room_list_map[room_id];
     let user_nick;
     /* 找到这个退出的用户并且从在线列表移除 */
     const delUserIndex = on_line_user_list.findIndex((t) => {
@@ -102,8 +100,7 @@ export class WsChatGateway {
     const { id: quote_user_id, user_nick: quote_user_nick } = quoteUserInfo;
 
     /* 发送的消息数据处理 */
-    const { user_nick, user_avatar, user_role, id } =
-      await this.getUserInfoForClientId(client.id);
+    const { user_nick, user_avatar, user_role, id } = await this.getUserInfoForClientId(client.id);
     const params = {
       user_id,
       message_content,
@@ -115,8 +112,7 @@ export class WsChatGateway {
     const message = await this.MessageModel.save(params);
 
     /* 需要对消息的message_content序列化因为发送的所有消息都是JSON.strify的 */
-    message.message_content &&
-      (message.message_content = JSON.parse(message.message_content));
+    message.message_content && (message.message_content = JSON.parse(message.message_content));
     /* 创建消息之后的信息里没有发送人信息和引用信息，需要自己从客户端带来的信息组装 */
     const result: any = {
       ...message,
@@ -133,9 +129,7 @@ export class WsChatGateway {
         quote_user_id,
       });
 
-    this.socket
-      .to(room_id)
-      .emit('message', { data: result, msg: '有一条新消息' });
+    this.socket.to(room_id).emit('message', { data: result, msg: '有一条新消息' });
   }
 
   /**
@@ -146,17 +140,15 @@ export class WsChatGateway {
   async handleCutMusic(client: Socket, music: any) {
     const { music_name, music_singer, choose_user_id } = music;
     const { room_id } = this.clientIdMap[client.id];
-    const {
-      user_role,
-      user_nick,
-      id: user_id,
-    } = await this.getUserInfoForClientId(client.id);
+    const { user_role, user_nick, id: user_id } = await this.getUserInfoForClientId(client.id);
     const { room_admin_info } = this.room_list_map[room_id];
-    if (
-      !['admin'].includes(user_role) &&
-      user_id !== room_admin_info.id &&
-      user_id !== choose_user_id
-    ) {
+
+    // 获取房间管理员列表
+    const moderatorIds = await this.getRoomModeratorIds(room_id);
+    // 计算有效角色
+    const effectiveRole = getEffectiveRole(user_role, user_id, room_admin_info.id, moderatorIds);
+
+    if (!canCutMusic(effectiveRole, user_id, choose_user_id)) {
       return client.emit('tips', {
         code: -1,
         msg: '非管理员或房主只能切换自己歌曲哟...',
@@ -176,26 +168,35 @@ export class WsChatGateway {
     const { user_id, room_id } = this.clientIdMap[client.id];
     const user_info: any = await this.getUserInfoForClientId(client.id);
     const { music_name, music_singer, music_mid } = musicInfo;
-    const { music_queue_list, room_admin_info } =
-      this.room_list_map[this.clientIdMap[client.id].room_id];
-    const { id: room_admin_id } = room_admin_info;
+    const { music_queue_list, room_admin_info } = this.room_list_map[this.clientIdMap[client.id].room_id];
+
     if (music_queue_list.some((t) => t.music_mid === music_mid)) {
       return client.emit('tips', { code: -1, msg: '这首歌已经在列表中啦！' });
     }
-    /* 计算距离上次点歌时间 管理员或者房主 不限制点歌时间 */
-    if (this.chooseMusicTimeSpace[user_id]) {
+
+    // 获取房间管理员列表并计算有效角色
+    const moderatorIds = await this.getRoomModeratorIds(room_id);
+    const effectiveRole = getEffectiveRole(user_info.user_role, user_id, room_admin_info.id, moderatorIds);
+
+    // 获取点歌冷却时间
+    const cooldown = getMusicCooldown(effectiveRole);
+
+    // 游客禁止点歌
+    if (cooldown === -1) {
+      return client.emit('tips', { code: -1, msg: '请登录后点歌' });
+    }
+
+    // 检查点歌冷却时间
+    if (cooldown > 0 && this.chooseMusicTimeSpace[user_id]) {
       const timeDifference = getTimeSpace(this.chooseMusicTimeSpace[user_id]);
-      if (
-        timeDifference <= 8 &&
-        !['super', 'guest', 'admin'].includes(user_info.user_role) &&
-        user_id !== room_admin_id
-      ) {
+      if (timeDifference <= cooldown) {
         return client.emit('tips', {
           code: -1,
-          msg: `频率过高 请在${8 - timeDifference}秒后重试`,
+          msg: `频率过高 请在${cooldown - timeDifference}秒后重试`,
         });
       }
     }
+
     musicInfo.user_info = user_info;
     music_queue_list.push(musicInfo);
     this.chooseMusicTimeSpace[user_id] = getTimeSpace();
@@ -216,23 +217,22 @@ export class WsChatGateway {
   @SubscribeMessage('removeQueueMusic')
   async handlerRemoveQueueMusic(client: Socket, music: any) {
     const { user_id, room_id } = this.clientIdMap[client.id]; // 房间信息
-    const { music_mid, music_name, music_singer, user_info } = music; // 当前操作的歌曲信息
-    const { user_role, id } = user_info; // 点歌人信息
+    const { music_mid, music_name, music_singer, user_info: chooser_info } = music; // 当前操作的歌曲信息
+    const chooser_id = chooser_info?.id; // 点歌人 ID
     const { music_queue_list, room_admin_info } = this.room_list_map[room_id];
-    const { id: room_admin_id } = room_admin_info; // 房主信息
-    if (
-      !['admin'].includes(user_role) &&
-      user_id !== id &&
-      user_id !== room_admin_id
-    ) {
+
+    // 获取当前用户信息和有效角色
+    const currentUser = await this.getUserInfoForClientId(client.id);
+    const moderatorIds = await this.getRoomModeratorIds(room_id);
+    const effectiveRole = getEffectiveRole(currentUser.user_role, user_id, room_admin_info.id, moderatorIds);
+
+    if (!canRemoveMusic(effectiveRole, user_id, chooser_id)) {
       return client.emit('tips', {
         code: -1,
         msg: '非管理员或房主只能移除掉自己点的歌曲哟...',
       });
     }
-    const delIndex = music_queue_list.findIndex(
-      (t) => t.music_mid === music_mid,
-    );
+    const delIndex = music_queue_list.findIndex((t) => t.music_mid === music_mid);
     music_queue_list.splice(delIndex, 1);
     client.emit('tips', {
       code: 1,
@@ -241,7 +241,7 @@ export class WsChatGateway {
     this.socket.emit('chooseMusic', {
       code: 1,
       music_queue_list: music_queue_list,
-      msg: `${user_info.user_nick} 移除了歌单中的 ${music_name}(${music_singer})`,
+      msg: `${currentUser.user_nick} 移除了歌单中的 ${music_name}(${music_singer})`,
     });
   }
 
@@ -255,9 +255,7 @@ export class WsChatGateway {
     const { room_id } = this.clientIdMap[client.id];
     const old_user_info = await this.getUserInfoForClientId(client.id);
     /* 引用数据类型直接覆盖就可以改变原数据 */
-    Object.keys(newUserInfo).forEach(
-      (key) => (old_user_info[key] = newUserInfo[key]),
-    );
+    Object.keys(newUserInfo).forEach((key) => (old_user_info[key] = newUserInfo[key]));
 
     /* 拿到新的当前房间的在线用户列表，通知用户更新，在线列表信息也变了 */
     const { on_line_user_list } = this.room_list_map[Number(room_id)];
@@ -298,8 +296,7 @@ export class WsChatGateway {
     const { createdAt } = message;
     const timeSpace = new Date(createdAt).getTime();
     const now = new Date().getTime();
-    if (now - timeSpace > 2 * 60 * 1000)
-      return client.emit('tips', { code: -1, msg: '只能撤回两分钟内的消息！' });
+    if (now - timeSpace > 2 * 60 * 1000) return client.emit('tips', { code: -1, msg: '只能撤回两分钟内的消息！' });
     await this.MessageModel.update({ id }, { message_status: -1 });
     this.socket.to(room_id).emit('recallMessage', {
       code: 1,
@@ -325,27 +322,40 @@ export class WsChatGateway {
         message_content: '当前房间没有曲库，请自定义点歌吧！',
       });
     }
-    const { mid, user_info, music_queue_list } = music;
+    const { mid, source, user_info, music_queue_list } = music;
     try {
-      /* 获取歌曲详细信息 */
-      const { music_lrc, music_info } = await getMusicDetail(mid);
+      /* 获取歌曲详细信息 - 传递source参数 */
+      const { music_lrc, music_info } = await getMusicDetailUnified(mid, source);
       /* 如果有点歌人信息，携带其id，没有标为-1系统随机点播的，切歌时用于判断是否是本人操作 */
       music_info.choose_user_id = user_info ? user_info.id : -1;
-      /* 获取歌曲远程地址 */
-      const music_src = await getMusicSrc(mid);
+      /* 记录歌曲来源 */
+      music_info.source = source;
+      /* 获取歌曲远程地址、时长和封面 - 传递source参数 */
+      const musicSrcResult = await getMusicSrcUnified(mid, source);
+      const music_src = musicSrcResult.url;
+      /* 如果从播放地址接口获取到了时长，使用它覆盖原有的 duration */
+      if (musicSrcResult.timeLength && musicSrcResult.timeLength > 0) {
+        music_info.music_duration = musicSrcResult.timeLength;
+      }
+      /* 如果从播放地址接口获取到了封面，使用它覆盖空的封面 */
+      if (musicSrcResult.cover && (!music_info.music_cover || music_info.music_cover === '')) {
+        music_info.music_cover = musicSrcResult.cover;
+        music_info.music_albumpic = musicSrcResult.cover;
+      }
+      /* 如果从播放地址接口获取到了专辑名，使用它覆盖空的专辑 */
+      if (musicSrcResult.album && (!music_info.music_album || music_info.music_album === '')) {
+        music_info.music_album = musicSrcResult.album;
+      }
       this.room_list_map[Number(room_id)].music_info = music_info;
       this.room_list_map[Number(room_id)].music_lrc = music_lrc;
       this.room_list_map[Number(room_id)].music_src = music_src;
-      const { music_singer, music_album } = music_info;
+      const { music_singer, music_name } = music_info;
       /* 如果房间点歌队列存在歌曲那么移除房间歌曲列表第一首 */
-      music_queue_list.length &&
-        this.room_list_map[Number(room_id)].music_queue_list.shift();
+      music_queue_list.length && this.room_list_map[Number(room_id)].music_queue_list.shift();
       /* 通知客户端事件切换歌曲 */
       this.socket.to(room_id).emit('switchMusic', {
         musicInfo: { music_info, music_src, music_lrc, music_queue_list },
-        msg: `正在播放${
-          user_info ? user_info.user_nick : '系统随机'
-        }点播的 ${music_album}(${music_singer})`,
+        msg: `正在播放${user_info ? user_info.user_nick : '系统随机'}点播的 ${music_name} - ${music_singer}`,
       });
       const { music_duration } = music_info;
       clearTimeout(this.timerList[`timer${room_id}`]);
@@ -354,8 +364,7 @@ export class WsChatGateway {
         this.switchMusic(room_id);
       }, music_duration * 1000);
       /* 拿到歌曲时长， 记录歌曲结束时间, 新用户进入时，可以计算出歌曲还有多久结束 */
-      this.room_list_map[Number(room_id)].last_music_timespace =
-        new Date().getTime() + music_duration * 1000;
+      this.room_list_map[Number(room_id)].last_music_timespace = new Date().getTime() + music_duration * 1000;
     } catch (error) {
       /* 如果拿的mid查询歌曲出错了 说明这个歌曲已经不能播放量  切换下一首 并且移除这首歌曲 */
       this.MusicModel.delete({ music_mid: mid });
@@ -369,17 +378,18 @@ export class WsChatGateway {
     }
   }
 
-  /* 获取下一首音乐id、有人点歌拿到歌单中的mid 没有则去db随机一首 */
+  /* 获取下一首音乐id、有人点歌拿到歌单中的mid 没有则去占db随机一首 */
   async getNextMusicMid(room_id) {
     let mid: any;
+    let source = 'kugou'; // 默认音源
     let user_info: any = null;
     let music_queue_list: any = [];
-    this.room_list_map[Number(room_id)] &&
-      (music_queue_list = this.room_list_map[Number(room_id)].music_queue_list);
+    this.room_list_map[Number(room_id)] && (music_queue_list = this.room_list_map[Number(room_id)].music_queue_list);
 
     /* 如果当前房间有点歌列表，就顺延，没有就随机播放一区 */
     if (music_queue_list.length) {
       mid = music_queue_list[0].music_mid;
+      source = music_queue_list[0]?.source || 'kugou'; // 获取点歌时指定的音源
       user_info = music_queue_list[0]?.user_info;
     } else {
       const count = await this.MusicModel.count();
@@ -394,8 +404,9 @@ export class WsChatGateway {
         return;
       }
       mid = random_music?.music_mid;
+      source = random_music?.source || 'kugou'; // 从tb_music获取音源
     }
-    return { mid, user_info, music_queue_list };
+    return { mid, source, user_info, music_queue_list };
   }
 
   /**
@@ -435,26 +446,12 @@ export class WsChatGateway {
       });
 
       /* 判断用户是不是已经在房间里面了 */
-      if (
-        Object.values(this.room_list_map).some((t: any) =>
-          t.on_line_user_list.includes(user_id),
-        )
-      ) {
+      if (Object.values(this.room_list_map).some((t: any) => t.on_line_user_list.includes(user_id))) {
         return client.emit('tips', { code: -2, msg: '您已经在别处登录了' });
       }
       /* 查询用户基础信息 */
       const u = await this.UserModel.findOne({ where: { id: user_id } });
-      const {
-        user_name,
-        user_nick,
-        user_email,
-        user_sex,
-        user_role,
-        user_avatar,
-        user_sign,
-        user_room_bg,
-        id,
-      } = u;
+      const { user_name, user_nick, user_email, user_sex, user_role, user_avatar, user_sign, user_room_bg, id } = u;
       const userInfo = {
         user_name,
         user_nick,
@@ -511,8 +508,7 @@ export class WsChatGateway {
 
       /* 需要通知别的所有人更新房间列表,如果是房间可以加一句提示消息告知开启了新房间 */
       const data: any = { room_list: formatRoomlist(this.room_list_map) };
-      !isHasRoom &&
-        (data.msg = `${user_nick}的房间[${room_info.room_name}]有新用户加入已成功开启`);
+      !isHasRoom && (data.msg = `${user_nick}的房间[${room_info.room_name}]有新用户加入已成功开启`);
       this.socket.emit('updateRoomlist', data);
     } catch (error) {}
   }
@@ -534,12 +530,8 @@ export class WsChatGateway {
       room_admin_info,
     } = this.room_list_map[Number(room_id)];
     const music_start_time =
-      music_info.music_duration -
-      Math.round((last_music_timespace - new Date().getTime()) / 1000);
-    const formatOnlineUserList = formatOnlineUser(
-      on_line_user_list,
-      room_admin_info.id,
-    );
+      music_info.music_duration - Math.round((last_music_timespace - new Date().getTime()) / 1000);
+    const formatOnlineUserList = formatOnlineUser(on_line_user_list, room_admin_info.id);
     /* 初始化房间用户需要用到的各种信息 */
     await client.emit('initRoom', {
       user_id,
@@ -619,5 +611,18 @@ export class WsChatGateway {
     const { room_id } = this.clientIdMap[cliend_id];
     const { music_queue_list } = this.room_list_map[room_id];
     return music_queue_list;
+  }
+
+  /**
+   * @desc 获取房间管理员ID列表
+   * @param room_id 房间ID
+   * @returns 房间管理员ID数组
+   */
+  async getRoomModeratorIds(room_id: number | string): Promise<number[]> {
+    const moderators = await this.RoomModeratorModel.find({
+      where: { room_id: Number(room_id), status: 1 },
+      select: ['user_id'],
+    });
+    return moderators.map((m) => m.user_id);
   }
 }

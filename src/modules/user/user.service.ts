@@ -36,9 +36,7 @@ export class UserService {
         user_avatar: '/basic/default-avatar.png',
       };
       const user = await this.UserModel.save(superUser);
-      Logger.debug(
-        `初始化超级管理员账号成功，账号：${user.user_name}，密码：123456`,
-      );
+      Logger.debug(`初始化超级管理员账号成功，账号：${user.user_name}，密码：123456`);
     }
   }
 
@@ -125,19 +123,9 @@ export class UserService {
   async update(payload, params) {
     const { user_id } = payload;
     /* 只能修改这些项 */
-    const whiteListKeys = [
-      'user_name',
-      'user_nick',
-      'user_sex',
-      'user_sign',
-      'user_avatar',
-      'user_room_bg',
-    ];
+    const whiteListKeys = ['user_name', 'user_nick', 'user_sex', 'user_sign', 'user_avatar', 'user_room_bg'];
     const upateInfoData: any = {};
-    whiteListKeys.forEach(
-      (key) =>
-        Object.keys(params).includes(key) && (upateInfoData[key] = params[key]),
-    );
+    whiteListKeys.forEach((key) => Object.keys(params).includes(key) && (upateInfoData[key] = params[key]));
     await this.UserModel.update({ id: user_id }, upateInfoData);
     return true;
   }

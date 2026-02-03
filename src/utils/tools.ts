@@ -52,9 +52,7 @@ export const formatRoomlist = (roomListMap) => {
   const roomIds = Object.keys(roomListMap).filter((key) => Number(key) !== 888);
   const adminRoom = roomListMap[888];
   let roomList = [];
-  roomIds.forEach((roomId) =>
-    roomList.push(getBasicRooInfo(roomListMap[roomId])),
-  );
+  roomIds.forEach((roomId) => roomList.push(getBasicRooInfo(roomListMap[roomId])));
   adminRoom && (roomList = [getBasicRooInfo(adminRoom), ...roomList]);
   return roomList;
 };

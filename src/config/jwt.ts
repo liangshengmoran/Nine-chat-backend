@@ -4,17 +4,9 @@
 
 export const secret = 'chat-cooper';
 export const expiresIn = '7d';
-export const whiteList = [
-  '/api/user/login',
-  '/api/user/register',
-  '/api/upload/file',
-];
+export const whiteList = ['/api/user/login', '/api/user/register', '/api/upload/file'];
 
 /**
  * post 请求的白名单，不限制身份的
  */
-export const postWhiteList = [
-  '/api/comment/set',
-  '/api/user/update',
-  '/api/chat/history',
-];
+export const postWhiteList = ['/api/comment/set', '/api/user/update', '/api/chat/history'];

@@ -1,26 +1,30 @@
 import { Column, Entity } from 'typeorm';
 import { BaseEntity } from 'src/common/entity/baseEntity';
 
+/**
+ * 聊天消息表
+ * 存储用户在房间内发送的消息记录
+ */
 @Entity({ name: 'tb_message' })
 export class MessageEntity extends BaseEntity {
-  @Column({ comment: '用户id' })
+  @Column({ comment: '发送消息的用户ID' })
   user_id: number;
 
-  @Column({ comment: '房间ID' })
+  @Column({ comment: '消息所属房间ID' })
   room_id: number;
 
-  @Column('text')
+  @Column('text', { comment: '消息内容（支持富文本/表情/图片等）' })
   message_content: string;
 
-  @Column({ length: 64, comment: '消息类型' })
+  @Column({ length: 64, comment: '消息类型: text-文本, image-图片, file-文件, emotion-表情, quote-引用' })
   message_type: string;
 
-  @Column({ nullable: true, comment: '引用消息人的id[引用了谁的消息]' })
+  @Column({ nullable: true, comment: '被引用消息的发送者用户ID' })
   quote_user_id: number;
 
-  @Column({ nullable: true, comment: '引用的消息ID' })
+  @Column({ nullable: true, comment: '被引用消息的ID' })
   quote_message_id: number;
 
-  @Column({ comment: '消息状态： 1: 正常 -1: 已撤回', default: 1 })
+  @Column({ comment: '消息状态: 1-正常, -1-已撤回', default: 1 })
   message_status: number;
 }
