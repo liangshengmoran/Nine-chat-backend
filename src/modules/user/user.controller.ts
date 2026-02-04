@@ -3,6 +3,7 @@ import { UserService } from './user.service';
 import { Body, Controller, Post, Request, Get, Query } from '@nestjs/common';
 import { UserRegisterDto } from './dto/register.user.dto';
 import { UserLoginDto } from './dto/login.user.dto';
+import { ChangePasswordDto } from './dto/changePassword.dto';
 
 @Controller('/user')
 @ApiTags('User')
@@ -63,5 +64,18 @@ export class UserController {
   @ApiResponse({ status: 401, description: '未授权' })
   update(@Request() req, @Body() params) {
     return this.userService.update(req.payload, params);
+  }
+
+  @Post('/changePassword')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '修改密码',
+    description: '用户修改自己的登录密码，需要提供原密码验证',
+  })
+  @ApiResponse({ status: 200, description: '修改成功' })
+  @ApiResponse({ status: 400, description: '原密码错误或新密码不符合要求' })
+  @ApiResponse({ status: 401, description: '未授权' })
+  changePassword(@Request() req, @Body() params: ChangePasswordDto) {
+    return this.userService.changePassword(req.payload, params);
   }
 }

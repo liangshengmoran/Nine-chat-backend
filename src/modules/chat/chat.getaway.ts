@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { getMusicDetailUnified, getMusicSrcUnified } from 'src/utils/spider';
 import { getTimeSpace } from 'src/utils/tools';
 import { getEffectiveRole, canCutMusic, canRemoveMusic, getMusicCooldown } from 'src/common/constants/roles';
+import { AdminService } from '../admin/admin.service';
 
 import { WebSocketGateway, WebSocketServer, SubscribeMessage } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
@@ -34,6 +35,7 @@ export class WsChatGateway {
     private readonly RoomModel: Repository<RoomEntity>,
     @InjectRepository(RoomModeratorEntity)
     private readonly RoomModeratorModel: Repository<RoomModeratorEntity>,
+    private readonly adminService: AdminService,
   ) {}
   @WebSocketServer() private socket: Server;
 
@@ -90,6 +92,37 @@ export class WsChatGateway {
   async handleMessage(client: Socket, data: any) {
     const { user_id, room_id } = this.clientIdMap[client.id];
     const { message_type, message_content, quote_message = {} } = data;
+
+    /* 检查用户是否被封禁 */
+    const currentUser = await this.UserModel.findOne({ where: { id: user_id } });
+    if (!currentUser || currentUser.user_status === 0 || currentUser.user_status === -1) {
+      return client.emit('tips', { code: -1, msg: '您的账号已被封禁，无法发送消息' });
+    }
+
+    /* 敏感词过滤处理 - 仅对文本消息进行过滤 */
+    let filteredContent = message_content;
+    if (message_type === 1) {
+      // message_type 1 为文本消息
+      try {
+        const parsed = JSON.parse(message_content);
+        if (parsed.text) {
+          const filterResult = await this.adminService.filterSensitiveWords(parsed.text);
+          if (filterResult.blocked) {
+            return client.emit('tips', { code: -1, msg: '消息包含违规内容，无法发送' });
+          }
+          parsed.text = filterResult.filtered;
+          filteredContent = JSON.stringify(parsed);
+        }
+      } catch (e) {
+        // 如果不是 JSON 格式，直接过滤
+        const filterResult = await this.adminService.filterSensitiveWords(message_content);
+        if (filterResult.blocked) {
+          return client.emit('tips', { code: -1, msg: '消息包含违规内容，无法发送' });
+        }
+        filteredContent = filterResult.filtered;
+      }
+    }
+
     /* 引用消息数据整理 */
     const {
       id: quote_message_id,
@@ -103,7 +136,7 @@ export class WsChatGateway {
     const { user_nick, user_avatar, user_role, id } = await this.getUserInfoForClientId(client.id);
     const params = {
       user_id,
-      message_content,
+      message_content: filteredContent,
       message_type,
       room_id,
       quote_user_id,
@@ -308,6 +341,88 @@ export class WsChatGateway {
   /* >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 下面是方法、不属于客户端提交的事件 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< */
 
   /**
+   * @desc 管理员/房主/房管踢出用户
+   */
+  @SubscribeMessage('kickUser')
+  async handleKickUser(client: Socket, { target_user_id, reason = '' }) {
+    const { user_id, room_id } = this.clientIdMap[client.id];
+    const currentUser = await this.getUserInfoForClientId(client.id);
+    const { room_admin_info, on_line_user_list } = this.room_list_map[room_id];
+
+    const moderatorIds = await this.getRoomModeratorIds(room_id);
+    const effectiveRole = getEffectiveRole(currentUser.user_role, user_id, room_admin_info.id, moderatorIds);
+
+    if (!['super', 'admin', 'owner', 'moderator'].includes(effectiveRole)) {
+      return client.emit('tips', { code: -1, msg: '您没有权限踢出用户' });
+    }
+    if (target_user_id === user_id) {
+      return client.emit('tips', { code: -1, msg: '不能踢出自己' });
+    }
+
+    const targetUser = on_line_user_list.find((u) => u.id === target_user_id);
+    if (!targetUser) {
+      return client.emit('tips', { code: -1, msg: '该用户不在房间内' });
+    }
+    if (['super', 'admin'].includes(targetUser.user_role)) {
+      return client.emit('tips', { code: -1, msg: '不能踢出管理员' });
+    }
+    if (effectiveRole === 'moderator' && target_user_id === room_admin_info.id) {
+      return client.emit('tips', { code: -1, msg: '房管不能踢出房主' });
+    }
+
+    let targetClientId = null;
+    Object.keys(this.clientIdMap).forEach((clientId) => {
+      if (this.clientIdMap[clientId].user_id === target_user_id && this.clientIdMap[clientId].room_id === room_id) {
+        targetClientId = clientId;
+      }
+    });
+
+    if (targetClientId) {
+      this.socket.to(targetClientId).emit('kicked', {
+        code: -1,
+        msg: reason ? `您已被踢出房间，原因: ${reason}` : '您已被踢出房间',
+      });
+      this.socket.in(targetClientId).disconnectSockets(true);
+    }
+
+    await this.messageNotice(room_id, {
+      code: 2,
+      message_type: 'info',
+      message_content: `${targetUser.user_nick} 已被 ${currentUser.user_nick} 踢出房间`,
+    });
+  }
+
+  /**
+   * @desc 管理员删除他人消息
+   */
+  @SubscribeMessage('deleteMessage')
+  async handleDeleteMessage(client: Socket, { message_id }) {
+    const { user_id, room_id } = this.clientIdMap[client.id];
+    const currentUser = await this.getUserInfoForClientId(client.id);
+    const { room_admin_info } = this.room_list_map[room_id];
+
+    const moderatorIds = await this.getRoomModeratorIds(room_id);
+    const effectiveRole = getEffectiveRole(currentUser.user_role, user_id, room_admin_info.id, moderatorIds);
+
+    if (!['super', 'admin', 'owner', 'moderator'].includes(effectiveRole)) {
+      return client.emit('tips', { code: -1, msg: '您没有权限删除消息' });
+    }
+
+    const message = await this.MessageModel.findOne({ where: { id: message_id, room_id } });
+    if (!message) {
+      return client.emit('tips', { code: -1, msg: '消息不存在' });
+    }
+
+    await this.MessageModel.update({ id: message_id }, { message_status: -2 });
+
+    this.socket.to(room_id).emit('messageDeleted', {
+      code: 1,
+      id: message_id,
+      msg: `${currentUser.user_nick} 删除了一条消息`,
+    });
+  }
+
+  /**
    * @desc 切换房间歌曲
    * @param room_id 房间id
    * @returns
@@ -426,6 +541,17 @@ export class WsChatGateway {
         return client.disconnect();
       }
 
+      /* IP黑名单检查 */
+      const clientIp = client.handshake.headers['x-forwarded-for'] || client.handshake.address || '';
+      const realIp = Array.isArray(clientIp) ? clientIp[0] : clientIp.split(',')[0].trim();
+      if (realIp) {
+        const isBlocked = await this.adminService.isIpBlocked(realIp);
+        if (isBlocked) {
+          client.emit('authFail', { code: -1, msg: '您的IP已被封禁，无法进入聊天室' });
+          return client.disconnect();
+        }
+      }
+
       /* 判断这个用户是不是在连接状态中 */
       Object.keys(this.clientIdMap).forEach((clientId) => {
         if (this.clientIdMap[clientId]['user_id'] === user_id) {
@@ -451,6 +577,17 @@ export class WsChatGateway {
       }
       /* 查询用户基础信息 */
       const u = await this.UserModel.findOne({ where: { id: user_id } });
+      if (!u) {
+        client.emit('authFail', { code: -1, msg: '无此用户信息、非法操作！' });
+        return client.disconnect();
+      }
+
+      /* 检查用户是否被封禁 */
+      if (u.user_status === 0 || u.user_status === -1) {
+        client.emit('authFail', { code: -1, msg: '您的账号已被封禁，无法进入聊天室' });
+        return client.disconnect();
+      }
+
       const { user_name, user_nick, user_email, user_sex, user_role, user_avatar, user_sign, user_room_bg, id } = u;
       const userInfo = {
         user_name,
@@ -463,10 +600,6 @@ export class WsChatGateway {
         user_sex,
         id,
       };
-      if (!u) {
-        client.emit('authFail', { code: -1, msg: '无此用户信息、非法操作！' });
-        return client.disconnect();
-      }
       /* 查询房间信息 如果没有当前这个房间id 说明需要新建这个房间 */
       const room_info = await this.RoomModel.findOne({
         where: { room_id },
@@ -486,6 +619,41 @@ export class WsChatGateway {
           msg: '您正在尝试加入一个不存在的房间、非法操作！！！',
         });
         return client.disconnect();
+      }
+
+      // 房间密码验证
+      // room_need_password: 1-公开, 2-需要密码
+      if (room_info.room_need_password === 2) {
+        const { room_password: inputPassword } = query;
+        // 获取完整房间信息（包含密码）
+        const roomWithPassword = await this.RoomModel.findOne({
+          where: { room_id },
+          select: ['room_password'],
+        });
+
+        // 房主和管理员可以直接进入自己的房间
+        const isRoomOwner = room_info.room_user_id === user_id;
+        const isAdmin = ['super', 'admin'].includes(u.user_role);
+
+        if (!isRoomOwner && !isAdmin) {
+          if (!inputPassword) {
+            client.emit('roomPasswordRequired', {
+              code: -4,
+              room_id,
+              room_name: room_info.room_name,
+              msg: '该房间需要密码才能进入',
+            });
+            return client.disconnect();
+          }
+
+          if (inputPassword !== roomWithPassword.room_password) {
+            client.emit('tips', {
+              code: -4,
+              msg: '房间密码错误',
+            });
+            return client.disconnect();
+          }
+        }
       }
 
       /* 正式加入房间 */

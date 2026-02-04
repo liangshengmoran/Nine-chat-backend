@@ -44,12 +44,14 @@ export class ChatService {
   /* 查询历史消息 */
   async history(params) {
     const { page = 1, pagesize = 300, room_id = 888 } = params;
-    const messageInfo = await this.MessageModel.find({
-      where: { room_id },
-      order: { id: 'DESC' },
-      skip: (page - 1) * pagesize,
-      take: pagesize,
-    });
+    // 过滤已删除的消息（message_status: 1=正常, -1=撤回, -2=管理员删除）
+    const messageInfo = await this.MessageModel.createQueryBuilder('message')
+      .where('message.room_id = :room_id', { room_id })
+      .andWhere('message.message_status != :deleted', { deleted: -2 })
+      .orderBy('message.id', 'DESC')
+      .skip((page - 1) * pagesize)
+      .take(pagesize)
+      .getMany();
 
     /* 收集此次所有的用户id 包含发送消息的和被艾特消息的 */
     const userIds = [];

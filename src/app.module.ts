@@ -8,6 +8,7 @@ import { UserModule } from './modules/user/user.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { UploadModule } from './modules/upload/upload.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { UploadModule } from './modules/upload/upload.module';
     MusicModule,
     UserModule,
     UploadModule,
+    AdminModule,
   ],
   controllers: [],
   providers: [],

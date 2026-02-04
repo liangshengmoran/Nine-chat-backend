@@ -46,6 +46,7 @@ Authorization: Bearer <token>
   .addTag('Chat', '聊天模块 - 房间管理、消息历史、表情包搜索')
   .addTag('Music - 音乐模块', '歌曲搜索、收藏、热门推荐')
   .addTag('Upload', '上传模块 - 文件/图片上传')
+  .addTag('Admin - 管理后台', '系统管理 - 用户、房间、曲库管理')
   .build();
 
 export function createSwagger(app: INestApplication) {

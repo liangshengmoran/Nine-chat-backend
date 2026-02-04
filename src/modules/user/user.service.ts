@@ -5,6 +5,7 @@ import { randomAvatar } from './../../constant/avatar';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
+import { AdminService } from '../admin/admin.service';
 
 @Injectable()
 export class UserService {
@@ -12,6 +13,7 @@ export class UserService {
     @InjectRepository(UserEntity)
     private readonly UserModel: Repository<UserEntity>,
     private readonly jwtService: JwtService,
+    private readonly adminService: AdminService,
   ) {}
 
   async onModuleInit() {
@@ -46,7 +48,16 @@ export class UserService {
    * @returns
    */
   async register(params) {
-    const { user_name, user_password, user_email, user_avatar } = params;
+    const { user_name, user_password, user_email, user_avatar, invite_code } = params;
+
+    // 如果提供了邀请码,验证邀请码是否有效
+    if (invite_code) {
+      const isValidCode = await this.adminService.validateInviteCode(invite_code);
+      if (!isValidCode) {
+        throw new HttpException('邀请码无效或已过期', HttpStatus.BAD_REQUEST);
+      }
+    }
+
     params.user_password = hashSync(user_password);
     if (!user_avatar) {
       params.user_avatar = randomAvatar();
@@ -58,7 +69,16 @@ export class UserService {
       const tips = user_name == u.user_name ? '用户名' : '邮箱';
       throw new HttpException(`该${tips}已经存在了！`, HttpStatus.BAD_REQUEST);
     }
+
+    // 移除 invite_code 字段，避免保存到数据库
+    delete params.invite_code;
     await this.UserModel.save(params);
+
+    // 如果使用了邀请码，增加使用次数
+    if (invite_code) {
+      await this.adminService.useInviteCode(invite_code);
+    }
+
     return true;
   }
 
@@ -75,9 +95,15 @@ export class UserService {
     if (!u) {
       throw new HttpException('该用户不存在！', HttpStatus.BAD_REQUEST);
     }
+
+    // 检查用户是否被封禁
+    if (u.user_status === 0 || u.user_status === -1) {
+      throw new HttpException('您的账号已被封禁，请联系管理员', HttpStatus.FORBIDDEN);
+    }
+
     const bool = compareSync(user_password, u.user_password);
     if (bool) {
-      const { user_name, user_email, id: user_id, user_role, user_nick } = u;
+      const { user_name, user_email, id: user_id, user_role, user_nick, user_status } = u;
       return {
         token: this.jwtService.sign({
           user_name,
@@ -85,6 +111,7 @@ export class UserService {
           user_email,
           user_id,
           user_role,
+          user_status,
         }),
       };
     } else {
@@ -128,5 +155,43 @@ export class UserService {
     whiteListKeys.forEach((key) => Object.keys(params).includes(key) && (upateInfoData[key] = params[key]));
     await this.UserModel.update({ id: user_id }, upateInfoData);
     return true;
+  }
+
+  /**
+   * @desc 修改密码
+   * @param payload JWT payload
+   * @param params { old_password, new_password }
+   */
+  async changePassword(payload, params) {
+    const { user_id } = payload;
+    const { old_password, new_password } = params;
+
+    // 获取用户信息
+    const user = await this.UserModel.findOne({ where: { id: user_id } });
+    if (!user) {
+      throw new HttpException('用户不存在', HttpStatus.BAD_REQUEST);
+    }
+
+    // 验证旧密码
+    const isOldPasswordValid = compareSync(old_password, user.user_password);
+    if (!isOldPasswordValid) {
+      throw new HttpException('原密码错误', HttpStatus.BAD_REQUEST);
+    }
+
+    // 新密码不能与旧密码相同
+    if (old_password === new_password) {
+      throw new HttpException('新密码不能与原密码相同', HttpStatus.BAD_REQUEST);
+    }
+
+    // 密码长度验证
+    if (new_password.length < 6 || new_password.length > 20) {
+      throw new HttpException('密码长度应为 6-20 位', HttpStatus.BAD_REQUEST);
+    }
+
+    // 更新密码
+    const hashedPassword = hashSync(new_password);
+    await this.UserModel.update({ id: user_id }, { user_password: hashedPassword });
+
+    return { message: '密码修改成功，请重新登录' };
   }
 }

@@ -6,6 +6,7 @@ import { UserService } from './user.service';
 import { JwtModule } from '@nestjs/jwt';
 import { expiresIn, secret } from 'src/config/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { PassportModule } from '@nestjs/passport';
       secret,
       signOptions: { expiresIn },
     }),
+    AdminModule,
   ],
   controllers: [UserController],
   providers: [UserService],

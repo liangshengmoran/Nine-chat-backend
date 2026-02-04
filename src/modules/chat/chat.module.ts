@@ -8,9 +8,13 @@ import { WsChatGateway } from './chat.getaway';
 import { Module } from '@nestjs/common';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([UserEntity, MessageEntity, MusicEntity, RoomEntity, RoomModeratorEntity])],
+  imports: [
+    TypeOrmModule.forFeature([UserEntity, MessageEntity, MusicEntity, RoomEntity, RoomModeratorEntity]),
+    AdminModule,
+  ],
   controllers: [ChatController],
   providers: [ChatService, WsChatGateway],
 })
