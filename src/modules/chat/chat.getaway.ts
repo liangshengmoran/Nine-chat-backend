@@ -146,10 +146,15 @@ export class WsChatGateway {
 
     /* 需要对消息的message_content序列化因为发送的所有消息都是JSON.strify的 */
     message.message_content && (message.message_content = JSON.parse(message.message_content));
+
+    /* 检查用户是否为房管 */
+    const moderatorIds = await this.getRoomModeratorIds(room_id);
+    const is_moderator = moderatorIds.includes(id);
+
     /* 创建消息之后的信息里没有发送人信息和引用信息，需要自己从客户端带来的信息组装 */
     const result: any = {
       ...message,
-      user_info: { user_nick, user_avatar, user_role, id, user_id: id },
+      user_info: { user_nick, user_avatar, user_role, id, user_id: id, is_moderator },
     };
     /* 如果有引用消息，自己组装引用消息需要的数据格式，就不用再请求一次了 */
     quote_user_id &&
