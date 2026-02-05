@@ -163,27 +163,126 @@ export class AdminService {
 
   /**
    * 更新用户角色
+   * 角色类型：
+   * - admin/user: 系统角色，不需要 room_id
+   * - owner: 房间房主，需要 room_id
+   * - moderator: 设为房管，需要 room_id
+   * - remove_moderator: 移除房管，需要 room_id
+   *
+   * 权限规则：
+   * - 超管可控制：管理员、房主、房管
+   * - 管理员可控制：房主、房管
+   * - 房主可控制：房主（转让给他人）、房管
    */
   async updateUserRole(params, operatorPayload) {
-    const { user_id, role } = params;
-    const { user_role: operatorRole } = operatorPayload;
-
-    // 只有超管可以设置管理员
-    if (role === 'admin' && operatorRole !== 'super') {
-      throw new HttpException('只有超级管理员可以设置管理员', HttpStatus.FORBIDDEN);
-    }
+    const { user_id, role, room_id } = params;
+    const { user_id: operator_id, user_role: operatorRole } = operatorPayload;
 
     const user = await this.UserModel.findOne({ where: { id: user_id } });
     if (!user) {
       throw new HttpException('用户不存在', HttpStatus.NOT_FOUND);
     }
 
-    // 不能修改超管的角色
+    // 不能修改超管
     if (user.user_role === 'super') {
-      throw new HttpException('不能修改超级管理员的角色', HttpStatus.FORBIDDEN);
+      throw new HttpException('不能修改超级管理员', HttpStatus.FORBIDDEN);
     }
 
+    // ========== 处理房间角色：owner, moderator, remove_moderator ==========
+    if (['owner', 'moderator', 'remove_moderator'].includes(role)) {
+      if (!room_id) {
+        throw new HttpException(`操作 ${role} 必须提供 room_id`, HttpStatus.BAD_REQUEST);
+      }
+
+      const room = await this.RoomModel.findOne({ where: { room_id } });
+      if (!room) {
+        throw new HttpException(`房间 [${room_id}] 不存在`, HttpStatus.BAD_REQUEST);
+      }
+
+      const isRoomOwner = room.room_user_id === operator_id;
+      const isAdmin = ['super', 'admin'].includes(operatorRole);
+
+      // 权限检查：超管/管理员 或 当前房主可以操作
+      if (!isAdmin && !isRoomOwner) {
+        throw new HttpException('只有超管、管理员或当前房主可以设置/移除房主/房管', HttpStatus.FORBIDDEN);
+      }
+
+      if (role === 'owner') {
+        // ===== 设置房主 =====
+        if (room.room_user_id === user_id) {
+          return { message: '该用户已经是此房间的房主' };
+        }
+
+        const oldOwnerId = room.room_user_id;
+
+        // 更新房主
+        await this.RoomModel.update({ room_id }, { room_user_id: user_id });
+
+        // 更新新房主的 user_room_id
+        await this.UserModel.update({ id: user_id }, { user_room_id: room_id });
+
+        // 清除旧房主的 user_room_id（如果他没有其他房间）
+        const otherRooms = await this.RoomModel.count({ where: { room_user_id: oldOwnerId } });
+        if (otherRooms === 0) {
+          await this.UserModel.update({ id: oldOwnerId }, { user_room_id: null });
+        }
+
+        // 如果是房主自己转让，将原房主角色降级为 user（除非原房主是超管/管理员）
+        if (isRoomOwner && !isAdmin) {
+          const oldOwner = await this.UserModel.findOne({ where: { id: oldOwnerId } });
+          if (oldOwner && !['super', 'admin'].includes(oldOwner.user_role)) {
+            await this.UserModel.update({ id: oldOwnerId }, { user_role: 'user' });
+          }
+        }
+
+        return {
+          message: '房主更换成功',
+          old_owner_id: oldOwnerId,
+          new_owner_id: user_id,
+        };
+      } else if (role === 'moderator') {
+        // ===== 设置房管 =====
+        const existing = await this.ModeratorModel.findOne({
+          where: { room_id, user_id, status: 1 },
+        });
+        if (existing) {
+          return { message: '该用户已经是此房间的房管' };
+        }
+
+        await this.ModeratorModel.save({
+          room_id,
+          user_id,
+          appointed_by: operator_id,
+          remark: '',
+          status: 1,
+        });
+
+        return { message: '房管设置成功', user_id, room_id };
+      } else {
+        // ===== 移除房管 (remove_moderator) =====
+        const existing = await this.ModeratorModel.findOne({
+          where: { room_id, user_id, status: 1 },
+        });
+        if (!existing) {
+          return { message: '该用户不是此房间的房管' };
+        }
+
+        // 软删除
+        await this.ModeratorModel.update({ id: existing.id }, { status: 0 });
+
+        return { message: '房管已移除', user_id, room_id };
+      }
+    }
+
+    // ========== 处理系统角色：admin, user ==========
+    // 只有超管可以设置管理员
+    if (role === 'admin' && operatorRole !== 'super') {
+      throw new HttpException('只有超级管理员可以设置管理员', HttpStatus.FORBIDDEN);
+    }
+
+    // 更新用户角色
     await this.UserModel.update({ id: user_id }, { user_role: role });
+
     return { message: '角色更新成功' };
   }
 

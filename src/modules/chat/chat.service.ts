@@ -70,6 +70,18 @@ export class ChatService {
 
     userInfoList.forEach((t: any) => (t.user_id = t.id));
 
+    /* 获取该房间的房管列表 */
+    const moderators = await this.ModeratorModel.find({
+      where: { room_id: Number(room_id), status: 1 },
+      select: ['user_id'],
+    });
+    const moderatorIds = moderators.map((m) => m.user_id);
+
+    /* 为用户信息添加 is_moderator 标记 */
+    userInfoList.forEach((t: any) => {
+      t.is_moderator = moderatorIds.includes(t.id);
+    });
+
     /* 相关联的引用消息的信息 */
     const messageInfoList = await this.MessageModel.find({
       where: { id: In(quoteMessageIds) },
@@ -183,95 +195,7 @@ export class ChatService {
   }
 
   // ==================== 房管管理 ====================
-
-  /**
-   * @desc 添加房管
-   * @param params AddModeratorDto
-   * @param payload JWT payload
-   */
-  async addModerator(params, payload) {
-    const { room_id, user_id, remark } = params;
-    const { user_id: operator_id, user_role } = payload;
-
-    // 检查房间是否存在
-    const room = await this.RoomModel.findOne({ where: { room_id } });
-    if (!room) {
-      throw new HttpException(`房间 [${room_id}] 不存在`, HttpStatus.BAD_REQUEST);
-    }
-
-    // 检查操作权限：只有房主、管理员、超管可以添加房管
-    const isRoomOwner = room.room_user_id === operator_id;
-    const isAdmin = ['super', 'admin'].includes(user_role);
-    if (!isRoomOwner && !isAdmin) {
-      throw new HttpException('您没有权限为该房间添加房管', HttpStatus.FORBIDDEN);
-    }
-
-    // 检查目标用户是否存在
-    const targetUser = await this.UserModel.findOne({ where: { id: user_id } });
-    if (!targetUser) {
-      throw new HttpException(`用户 [${user_id}] 不存在`, HttpStatus.BAD_REQUEST);
-    }
-
-    // 不能把自己设为房管
-    if (user_id === operator_id) {
-      throw new HttpException('不能将自己设为房管', HttpStatus.BAD_REQUEST);
-    }
-
-    // 检查是否已经是房管
-    const existing = await this.ModeratorModel.findOne({
-      where: { room_id, user_id, status: 1 },
-    });
-    if (existing) {
-      throw new HttpException('该用户已经是此房间的房管', HttpStatus.BAD_REQUEST);
-    }
-
-    // 添加房管
-    await this.ModeratorModel.save({
-      room_id,
-      user_id,
-      appointed_by: operator_id,
-      remark: remark || '',
-      status: 1,
-    });
-
-    return { message: '添加房管成功', user_id, room_id };
-  }
-
-  /**
-   * @desc 移除房管
-   * @param params RemoveModeratorDto
-   * @param payload JWT payload
-   */
-  async removeModerator(params, payload) {
-    const { room_id, user_id } = params;
-    const { user_id: operator_id, user_role } = payload;
-
-    // 检查房间是否存在
-    const room = await this.RoomModel.findOne({ where: { room_id } });
-    if (!room) {
-      throw new HttpException(`房间 [${room_id}] 不存在`, HttpStatus.BAD_REQUEST);
-    }
-
-    // 检查操作权限：只有房主、管理员、超管可以移除房管
-    const isRoomOwner = room.room_user_id === operator_id;
-    const isAdmin = ['super', 'admin'].includes(user_role);
-    if (!isRoomOwner && !isAdmin) {
-      throw new HttpException('您没有权限移除该房间的房管', HttpStatus.FORBIDDEN);
-    }
-
-    // 检查是否是房管
-    const existing = await this.ModeratorModel.findOne({
-      where: { room_id, user_id, status: 1 },
-    });
-    if (!existing) {
-      throw new HttpException('该用户不是此房间的房管', HttpStatus.BAD_REQUEST);
-    }
-
-    // 移除房管（软删除，将状态设为0）
-    await this.ModeratorModel.update({ id: existing.id }, { status: 0 });
-
-    return { message: '移除房管成功', user_id, room_id };
-  }
+  // 注：addModerator 和 removeModerator 已整合到 /api/admin/users/role
 
   /**
    * @desc 获取房间的房管列表

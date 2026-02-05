@@ -42,7 +42,14 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取仪表盘数据',
-    description: '获取系统统计数据，包括用户数、房间数、歌曲数、消息数等',
+    description: `获取管理后台首页统计数据。
+
+**返回内容：**
+- 总用户数、今日新增用户
+- 总房间数、活跃房间数
+- 曲库歌曲数、总收藏数
+- 总消息数、今日消息数
+- 在线用户数`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   @ApiResponse({ status: 403, description: '无权限访问' })
@@ -56,7 +63,14 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取用户列表',
-    description: '分页获取用户列表，支持按关键词和角色筛选',
+    description: `分页获取用户列表。
+
+**查询参数：**
+- \`page\`: 页码（默认1）
+- \`pagesize\`: 每页数量（默认20）
+- \`keyword\`: 搜索关键词（匹配用户名/昵称/邮箱）
+- \`role\`: 筛选角色（super/admin/user）
+- \`status\`: 筛选状态（1=正常, 0=封禁）`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   getUserList(@Query() params: UserQueryDto) {
@@ -67,7 +81,13 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取用户详情',
-    description: '获取指定用户的详细信息，包括收藏数、消息数等',
+    description: `获取指定用户的详细信息。
+
+**返回内容：**
+- 基本信息：用户名、昵称、头像、邮箱、角色、状态
+- 统计数据：歌曲收藏数、发送消息数
+- 房间信息：拥有的房间、担任房管的房间
+- 时间信息：注册时间、最后登录时间`,
   })
   @ApiParam({ name: 'id', description: '用户ID' })
   @ApiResponse({ status: 200, description: '获取成功' })
@@ -79,10 +99,30 @@ export class AdminController {
   @Post('/users/role')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: '更新用户角色',
-    description: '修改用户的角色权限（仅超管可设置admin）',
+    summary: '角色管理（统一接口）',
+    description: `统一的角色管理接口，支持设置/移除各类角色。
+
+**可用角色类型：**
+- \`admin\`: 设为管理员（仅超管可操作）
+- \`user\`: 设为普通用户 / 移除管理员身份
+- \`owner\`: 设为房主（需要 room_id）
+- \`moderator\`: 设为房管（需要 room_id）
+- \`remove_moderator\`: 移除房管（需要 room_id）
+
+**权限规则：**
+| 操作者 | 可设置的角色 |
+|--------|-------------|
+| 超管 | admin, user, owner, moderator, remove_moderator |
+| 管理员 | user, owner, moderator, remove_moderator |
+| 房主 | owner（可转让给他人）, moderator, remove_moderator |
+
+**特殊说明：**
+- 房主转让房间后，原房主会自动降级为 user（超管/管理员除外）
+- 设置 owner/moderator/remove_moderator 时必须提供有效的 room_id
+`,
   })
-  @ApiResponse({ status: 200, description: '更新成功' })
+  @ApiResponse({ status: 200, description: '操作成功' })
+  @ApiResponse({ status: 400, description: '参数错误（如房间角色缺少 room_id）' })
   @ApiResponse({ status: 403, description: '无权限操作' })
   @ApiResponse({ status: 404, description: '用户不存在' })
   updateUserRole(@Body() params: UpdateUserRoleDto, @Request() req) {
@@ -93,7 +133,16 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '封禁/解封用户',
-    description: '切换用户的封禁状态',
+    description: `切换用户的封禁状态（toggle）。
+
+**业务规则：**
+- 不能封禁超管或管理员
+- 封禁后用户无法登录和发送消息
+- 再次调用可解除封禁
+
+**请求参数：**
+- \`user_id\`: 目标用户ID
+- \`reason\`: 封禁原因（可选）`,
   })
   @ApiResponse({ status: 200, description: '操作成功' })
   @ApiResponse({ status: 403, description: '不能封禁管理员' })
@@ -108,7 +157,17 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取房间列表',
-    description: '分页获取房间列表，支持按关键词筛选',
+    description: `分页获取房间列表。
+
+**查询参数：**
+- \`page\`: 页码（默认1）
+- \`pagesize\`: 每页数量（默认20）
+- \`keyword\`: 搜索关键词（匹配房间名称）
+
+**返回内容：**
+- 房间ID、名称、密码状态、公告
+- 房主信息、在线人数
+- 创建时间`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   getRoomList(@Query() params: RoomQueryDto) {
@@ -119,7 +178,13 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取房间详情',
-    description: '获取指定房间的详细信息，包括房主、房管、消息数等',
+    description: `获取指定房间的详细信息。
+
+**返回内容：**
+- 基本信息：房间名、公告、背景图、密码状态
+- 房主信息：用户ID、昵称、头像
+- 房管列表：所有房管的信息
+- 统计数据：在线人数、消息总数`,
   })
   @ApiParam({ name: 'id', description: '房间ID' })
   @ApiResponse({ status: 200, description: '获取成功' })
@@ -134,7 +199,18 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取曲库列表',
-    description: '分页获取曲库歌曲列表，支持按关键词和音源筛选',
+    description: `分页获取曲库歌曲列表。
+
+**查询参数：**
+- \`page\`: 页码
+- \`pagesize\`: 每页数量
+- \`keyword\`: 搜索关键词（匹配歌名/歌手）
+- \`source\`: 音源筛选（kugou/netease）
+
+**返回内容：**
+- 歌曲ID、名称、歌手、封面
+- 音源、收藏数
+- 添加时间`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   getMusicList(@Query() params: MusicQueryDto) {
@@ -145,7 +221,12 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '删除曲库歌曲',
-    description: '从曲库中删除指定歌曲',
+    description: `从曲库中删除指定歌曲。
+
+**注意：**
+- 删除后用户的收藏也会一并清除
+- 正在播放的歌曲不会立即中断
+- 操作不可恢复`,
   })
   @ApiResponse({ status: 200, description: '删除成功' })
   @ApiResponse({ status: 404, description: '歌曲不存在' })
@@ -157,7 +238,11 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取收藏统计',
-    description: '获取收藏最多的歌曲排行',
+    description: `获取曲库收藏统计数据。
+
+**返回内容：**
+- 收藏数 Top 10 歌曲排行
+- 每首歌的收藏数量`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   getCollectStats() {
@@ -170,7 +255,20 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取消息列表',
-    description: '分页获取消息列表，支持按房间、用户、关键词筛选',
+    description: `分页获取消息列表。
+
+**查询参数：**
+- \`page\`: 页码
+- \`pagesize\`: 每页数量
+- \`room_id\`: 筛选房间ID
+- \`user_id\`: 筛选用户ID
+- \`keyword\`: 搜索消息内容
+- \`type\`: 消息类型（text/image/music/special）
+
+**返回内容：**
+- 消息ID、内容、类型、状态
+- 发送者信息、房间信息
+- 发送时间`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   getMessageList(@Query() params: MessageQueryDto) {
@@ -181,7 +279,12 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '删除消息',
-    description: '管理员删除违规消息',
+    description: `管理员删除违规消息。
+
+**业务规则：**
+- 删除后消息状态变为 -2（管理员删除）
+- 前端不再显示该消息
+- 操作不可恢复`,
   })
   @ApiResponse({ status: 200, description: '删除成功' })
   @ApiResponse({ status: 404, description: '消息不存在' })
@@ -195,7 +298,13 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '更新房间信息',
-    description: '管理员更新任意房间信息',
+    description: `管理员更新任意房间信息。
+
+**可修改字段：**
+- \`room_name\`: 房间名称
+- \`room_notice\`: 房间公告
+- \`room_bg\`: 背景图
+- \`room_password\`: 房间密码（设为空则取消密码）`,
   })
   @ApiResponse({ status: 200, description: '更新成功' })
   @ApiResponse({ status: 404, description: '房间不存在' })
@@ -207,7 +316,13 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '删除房间',
-    description: '管理员删除房间（官方房间不可删除）',
+    description: `管理员删除房间。
+
+**业务规则：**
+- 官方默认房间（room_id=888）不可删除
+- 删除后房间内的消息一并删除
+- 房主的 user_room_id 会被清空
+- 操作不可恢复`,
   })
   @ApiParam({ name: 'id', description: '房间ID' })
   @ApiResponse({ status: 200, description: '删除成功' })
@@ -223,7 +338,13 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '创建公告',
-    description: '管理员创建系统公告',
+    description: `管理员创建系统公告。
+
+**请求参数：**
+- \`title\`: 公告标题
+- \`content\`: 公告内容（支持 Markdown）
+- \`priority\`: 优先级（高优先级置顶显示）
+- \`expire_at\`: 过期时间（可选）`,
   })
   @ApiResponse({ status: 200, description: '创建成功' })
   createAnnouncement(@Request() req, @Body() params: CreateAnnouncementDto) {
@@ -234,7 +355,14 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '更新公告',
-    description: '管理员更新公告信息',
+    description: `管理员更新公告信息。
+
+**可修改字段：**
+- \`title\`: 公告标题
+- \`content\`: 公告内容
+- \`priority\`: 优先级
+- \`expire_at\`: 过期时间
+- \`status\`: 状态（1=启用, 0=禁用）`,
   })
   @ApiResponse({ status: 200, description: '更新成功' })
   @ApiResponse({ status: 404, description: '公告不存在' })
@@ -269,7 +397,12 @@ export class AdminController {
   @Get('/announcements/active')
   @ApiOperation({
     summary: '获取有效公告',
-    description: '获取当前有效的公告列表（前端展示用，无需权限）',
+    description: `获取当前有效的公告列表（前端展示用）。
+
+**特点：**
+- 无需登录即可访问
+- 只返回未过期且启用的公告
+- 按优先级排序（高优先级在前）`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   getActiveAnnouncements() {
@@ -282,7 +415,17 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取操作日志',
-    description: '获取管理员操作日志列表（分页）',
+    description: `获取管理员操作日志列表。
+
+**查询参数：**
+- \`page\`: 页码
+- \`pagesize\`: 每页数量
+- \`operator_id\`: 筛选操作者ID
+- \`action\`: 筛选操作类型
+
+**返回内容：**
+- 操作者信息、操作类型、操作详情
+- 目标对象、操作时间`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   getOperationLogs(@Query() params: OperationLogQueryDto) {
@@ -295,7 +438,15 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '批量封禁用户',
-    description: '批量封禁多个用户账号',
+    description: `批量封禁多个用户账号。
+
+**请求参数：**
+- \`user_ids\`: 用户ID数组
+- \`reason\`: 封禁原因（可选）
+
+**业务规则：**
+- 不能封禁超管或管理员
+- 批量操作中遇到管理员会跳过`,
   })
   @ApiResponse({ status: 200, description: '封禁成功' })
   @ApiResponse({ status: 403, description: '不能封禁管理员' })
@@ -307,7 +458,14 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '批量删除消息',
-    description: '批量删除多条消息',
+    description: `批量删除多条消息。
+
+**请求参数：**
+- \`message_ids\`: 消息ID数组
+
+**操作结果：**
+- 消息状态变为 -2（管理员删除）
+- 返回成功删除的数量`,
   })
   @ApiResponse({ status: 200, description: '删除成功' })
   batchDeleteMessages(@Request() req, @Body() params: BatchDeleteMessagesDto) {
@@ -320,7 +478,13 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取在线统计',
-    description: '获取今日新增用户、今日消息数等统计信息',
+    description: `获取实时在线统计信息。
+
+**返回内容：**
+- 今日新增用户数
+- 今日消息数
+- 当前在线用户数
+- 各房间在线人数`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   getOnlineStats() {
@@ -333,7 +497,14 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '添加敏感词',
-    description: '添加需要过滤的敏感词',
+    description: `添加需要过滤的敏感词。
+
+**请求参数：**
+- \`word\`: 敏感词内容
+- \`level\`: 级别（1=警告, 2=拦截, 3=封禁）
+
+**功能说明：**
+- 用户发送包含敏感词的消息时会触发过滤`,
   })
   @ApiResponse({ status: 200, description: '添加成功' })
   addSensitiveWord(@Body() params: CreateSensitiveWordDto) {
@@ -369,7 +540,13 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '提交反馈',
-    description: '用户提交反馈或建议',
+    description: `用户提交反馈或建议。
+
+**请求参数：**
+- \`title\`: 反馈标题
+- \`content\`: 反馈内容
+- \`type\`: 类型（bug/suggestion/other）
+- \`contact\`: 联系方式（可选）`,
   })
   @ApiResponse({ status: 200, description: '提交成功' })
   createFeedback(@Request() req, @Body() params: CreateFeedbackDto) {
@@ -391,7 +568,12 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '回复反馈',
-    description: '管理员回复处理用户反馈',
+    description: `管理员回复处理用户反馈。
+
+**请求参数：**
+- \`id\`: 反馈ID
+- \`reply\`: 回复内容
+- \`status\`: 状态（1=待处理, 2=处理中, 3=已解决, 4=已关闭）`,
   })
   @ApiResponse({ status: 200, description: '处理成功' })
   replyFeedback(@Request() req, @Body() params: ReplyFeedbackDto) {
@@ -415,7 +597,15 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '生成邀请码',
-    description: '管理员生成新的邀请码',
+    description: `管理员生成新的邀请码。
+
+**请求参数：**
+- \`count\`: 生成数量（默认1）
+- \`expire_days\`: 有效天数（默认7天）
+- \`max_uses\`: 最大使用次数（默认1次）
+
+**返回内容：**
+- 生成的邀请码列表`,
   })
   @ApiResponse({ status: 200, description: '生成成功' })
   createInviteCode(@Request() req, @Body() params: CreateInviteCodeDto) {
@@ -437,7 +627,11 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '禁用邀请码',
-    description: '禁用指定邀请码',
+    description: `禁用指定邀请码。
+
+**业务规则：**
+- 禁用后该邀请码不能再被使用
+- 已被使用过的记录不受影响`,
   })
   @ApiParam({ name: 'id', description: '邀请码ID' })
   @ApiResponse({ status: 200, description: '禁用成功' })
@@ -451,7 +645,15 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '添加IP到黑名单',
-    description: '封禁指定IP地址',
+    description: `封禁指定IP地址。
+
+**请求参数：**
+- \`ip\`: IP地址（支持IPv4/IPv6）
+- \`reason\`: 封禁原因
+- \`expire_at\`: 过期时间（可选，不填则永久封禁）
+
+**功能说明：**
+- 被封禁的IP无法访问系统`,
   })
   @ApiResponse({ status: 200, description: '添加成功' })
   addIpBlacklist(@Request() req, @Body() params: AddIpBlacklistDto) {
@@ -487,7 +689,16 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '导出数据',
-    description: '导出用户、消息、房间或音乐数据',
+    description: `导出系统数据为 JSON/CSV 格式。
+
+**请求参数：**
+- \`type\`: 数据类型（users/messages/rooms/music）
+- \`format\`: 导出格式（json/csv）
+- \`start_date\`: 开始日期（可选）
+- \`end_date\`: 结束日期（可选）
+
+**返回内容：**
+- 导出的数据内容或下载链接`,
   })
   @ApiResponse({ status: 200, description: '导出成功' })
   exportData(@Body() params: ExportDataDto) {
@@ -500,7 +711,16 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '清理过期数据',
-    description: '手动触发清理过期公告、邀请码、IP黑名单和操作日志',
+    description: `手动触发清理过期数据。
+
+**清理范围：**
+- 过期公告
+- 过期邀请码
+- 过期IP黑名单记录
+- 30天前的操作日志
+
+**返回内容：**
+- 各类型清理的记录数`,
   })
   @ApiResponse({ status: 200, description: '清理完成' })
   cleanupExpiredData() {

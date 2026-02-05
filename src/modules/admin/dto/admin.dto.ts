@@ -30,9 +30,21 @@ export class UpdateUserRoleDto {
   @Type(() => Number)
   user_id: number;
 
-  @ApiProperty({ description: '新角色', enum: ['admin', 'user'] })
-  @IsIn(['admin', 'user'])
+  @ApiProperty({
+    description:
+      '角色操作：admin(设为管理员), user(设为普通用户/移除管理员), owner(设为房主), moderator(设为房管), remove_moderator(移除房管)',
+    enum: ['admin', 'user', 'owner', 'moderator', 'remove_moderator'],
+  })
+  @IsIn(['admin', 'user', 'owner', 'moderator', 'remove_moderator'])
   role: string;
+
+  @ApiProperty({
+    required: false,
+    description: '房间ID（当 role 为 owner, moderator, remove_moderator 时必填）',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  room_id?: number;
 }
 
 export class BanUserDto {
