@@ -171,7 +171,7 @@ export class WsChatGateway {
    */
   @SubscribeMessage('cutMusic')
   async handleCutMusic(client: Socket, music: any) {
-    const { music_name, music_singer, choose_user_id } = music;
+    const { music_name = '未知歌曲', music_singer = '未知歌手', choose_user_id } = music || {};
     const { room_id } = this.clientIdMap[client.id];
     const { user_role, user_nick, id: user_id } = await this.getUserInfoForClientId(client.id);
     const { room_admin_info } = this.room_list_map[room_id];
@@ -427,7 +427,16 @@ export class WsChatGateway {
    * @param room_id 房间id
    * @returns
    */
-  async switchMusic(room_id) {
+  async switchMusic(room_id, retryCount = 0) {
+    /* 防止无限递归：最多重试5次 */
+    const MAX_RETRY = 5;
+    if (retryCount >= MAX_RETRY) {
+      return this.messageNotice(room_id, {
+        code: -1,
+        message_type: 'info',
+        message_content: '连续多首歌曲无法播放，请手动点歌或稍后再试',
+      });
+    }
     /* 获取下一首的歌曲id */
     const music: any = await this.getNextMusicMid(room_id);
     if (!music) {
@@ -481,15 +490,23 @@ export class WsChatGateway {
       /* 拿到歌曲时长， 记录歌曲结束时间, 新用户进入时，可以计算出歌曲还有多久结束 */
       this.room_list_map[Number(room_id)].last_music_timespace = new Date().getTime() + music_duration * 1000;
     } catch (error) {
-      /* 如果拿的mid查询歌曲出错了 说明这个歌曲已经不能播放量  切换下一首 并且移除这首歌曲 */
+      /* 如果拿的mid查询歌曲出错了 说明这个歌曲已经不能播放  切换下一首 并且移除这首歌曲 */
+      /* 先保存当前歌曲信息用于提示，再移除 */
+      const failedMusicName = music_queue_list[0]?.music_name || '未知歌曲';
+
       this.MusicModel.delete({ music_mid: mid });
-      music_queue_list.shift();
-      this.switchMusic(room_id);
-      return this.messageNotice(room_id, {
+      if (music_queue_list.length) {
+        music_queue_list.shift();
+      }
+
+      this.messageNotice(room_id, {
         code: 2,
         message_type: 'info',
-        message_content: `当前歌曲 (${music_queue_list[0]?.music_name}) 为付费内容，请下载酷我音乐客户端后付费收听!`,
+        message_content: `歌曲 (${failedMusicName}) 暂时无法播放，正在切换下一首...`,
       });
+
+      /* 递归切换下一首，传递重试次数 */
+      this.switchMusic(room_id, retryCount + 1);
     }
   }
 
