@@ -1,4 +1,4 @@
-import { Column, Entity } from 'typeorm';
+import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from 'src/common/entity/baseEntity';
 
 /**
@@ -6,6 +6,7 @@ import { BaseEntity } from 'src/common/entity/baseEntity';
  * 存储用户收藏的歌曲记录，支持多音源
  */
 @Entity({ name: 'tb_collect' })
+@Index('idx_collect_user_music', ['user_id', 'music_mid'], { unique: true })
 export class CollectEntity extends BaseEntity {
   @Column({ comment: '收藏用户的ID' })
   user_id: number;
@@ -28,8 +29,8 @@ export class CollectEntity extends BaseEntity {
   @Column({ length: 255, comment: '歌曲名称' })
   music_name: string;
 
-  @Column({ comment: '收藏状态（软删除）: 1-正常, -1-已取消收藏', default: 1 })
-  is_delete: number;
+  @Column({ comment: '收藏状态: 1-正常, 0-已取消收藏', default: 1 })
+  status: number;
 
   @Column({ length: 20, comment: '音乐来源平台: kugou-酷狗音乐, netease-网易云音乐', default: 'kugou' })
   source: string;

@@ -13,9 +13,6 @@ export class InviteCodeEntity extends BaseEntity {
   @Column({ comment: '创建者用户ID' })
   creator_id: number;
 
-  @Column({ length: 50, comment: '创建者昵称' })
-  creator_nick: string;
-
   @Column({ default: 1, comment: '可使用次数' })
   max_uses: number;
 

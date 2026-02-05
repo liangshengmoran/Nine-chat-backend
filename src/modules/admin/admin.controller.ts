@@ -147,8 +147,8 @@ export class AdminController {
   @ApiResponse({ status: 200, description: '操作成功' })
   @ApiResponse({ status: 403, description: '不能封禁管理员' })
   @ApiResponse({ status: 404, description: '用户不存在' })
-  toggleUserBan(@Body() params: BanUserDto, @Request() req) {
-    return this.AdminService.toggleUserBan(params, req.payload);
+  toggleUserBan(@Body() params: BanUserDto) {
+    return this.AdminService.toggleUserBan(params);
   }
 
   // ==================== 房间管理 ====================
@@ -230,8 +230,8 @@ export class AdminController {
   })
   @ApiResponse({ status: 200, description: '删除成功' })
   @ApiResponse({ status: 404, description: '歌曲不存在' })
-  deleteMusic(@Body() params: DeleteMusicDto, @Request() req) {
-    return this.AdminService.deleteMusic(params, req.payload);
+  deleteMusic(@Body() params: DeleteMusicDto) {
+    return this.AdminService.deleteMusic(params);
   }
 
   @Get('/music/stats')

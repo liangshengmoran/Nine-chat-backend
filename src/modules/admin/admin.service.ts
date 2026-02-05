@@ -289,7 +289,7 @@ export class AdminService {
   /**
    * 封禁/解封用户
    */
-  async toggleUserBan(params, _operatorPayload) {
+  async toggleUserBan(params) {
     const { user_id } = params;
 
     const user = await this.UserModel.findOne({ where: { id: user_id } });
@@ -438,7 +438,7 @@ export class AdminService {
   /**
    * 删除曲库歌曲
    */
-  async deleteMusic(params, _operatorPayload) {
+  async deleteMusic(params) {
     const { music_id } = params;
 
     const music = await this.MusicModel.findOne({ where: { id: music_id } });
@@ -598,7 +598,7 @@ export class AdminService {
    */
   async createAnnouncement(params, operatorPayload) {
     const { title, content, type = 0, expire_at } = params;
-    const { user_id, user_nick } = operatorPayload;
+    const { user_id } = operatorPayload;
 
     const announcement = await this.AnnouncementModel.save({
       title,
@@ -606,7 +606,6 @@ export class AdminService {
       type,
       expire_at,
       publisher_id: user_id,
-      publisher_nick: user_nick,
     });
 
     // 记录操作日志
@@ -713,11 +712,10 @@ export class AdminService {
     targetType?: string,
     actionDetail?: any,
   ) {
-    const { user_id, user_nick } = operatorPayload;
+    const { user_id } = operatorPayload;
 
     await this.OperationLogModel.save({
       operator_id: user_id,
-      operator_nick: user_nick,
       action_type: actionType,
       action_desc: actionDesc,
       target_id: targetId,
@@ -919,11 +917,10 @@ export class AdminService {
    */
   async createFeedback(params, userPayload) {
     const { type = 0, title, content, images } = params;
-    const { user_id, user_nick } = userPayload;
+    const { user_id } = userPayload;
 
     await this.FeedbackModel.save({
       user_id,
-      user_nick,
       type,
       title,
       content,
@@ -962,7 +959,7 @@ export class AdminService {
    */
   async replyFeedback(params, operatorPayload) {
     const { id, status, reply } = params;
-    const { user_id, user_nick } = operatorPayload;
+    const { user_id } = operatorPayload;
 
     const feedback = await this.FeedbackModel.findOne({ where: { id } });
     if (!feedback) {
@@ -975,7 +972,6 @@ export class AdminService {
         status,
         reply,
         handler_id: user_id,
-        handler_nick: user_nick,
         handled_at: new Date(),
       },
     );
@@ -1007,7 +1003,7 @@ export class AdminService {
    */
   async createInviteCode(params, operatorPayload) {
     const { max_uses = 1, expire_at, remark } = params;
-    const { user_id, user_nick } = operatorPayload;
+    const { user_id } = operatorPayload;
 
     // 生成随机邀请码
     const code = this.generateRandomCode(8);
@@ -1015,7 +1011,6 @@ export class AdminService {
     await this.InviteCodeModel.save({
       code,
       creator_id: user_id,
-      creator_nick: user_nick,
       max_uses,
       expire_at,
       remark,
@@ -1105,7 +1100,7 @@ export class AdminService {
    */
   async addIpBlacklist(params, operatorPayload) {
     const { ip, reason, expire_at } = params;
-    const { user_id, user_nick } = operatorPayload;
+    const { user_id } = operatorPayload;
 
     const existing = await this.IpBlacklistModel.findOne({ where: { ip } });
     if (existing) {
@@ -1117,7 +1112,6 @@ export class AdminService {
       reason,
       expire_at,
       operator_id: user_id,
-      operator_nick: user_nick,
     });
 
     return { message: 'IP已添加到黑名单' };

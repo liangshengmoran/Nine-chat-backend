@@ -15,13 +15,14 @@ lerna-debug.log*
 .DS_Store
 
 # Tests
+/migrations
 /coverage
 /.nyc_output
 /public/static
 /public/favicon.ico
 /public/index.html
 /public/files/*
-/data/nine-chat.sqlite
+/data
 # IDEs and editors
 /.idea
 .project

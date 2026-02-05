@@ -25,8 +25,8 @@ export class MusicEntity extends BaseEntity {
   @Column({ length: 500, comment: '歌曲封面图片URL', nullable: true })
   music_cover: string;
 
-  @Column({ comment: '是否推荐到热门歌曲列表: 1-推荐, 0-普通, -1-不推荐', default: 0 })
-  is_recommend: number;
+  @Column({ comment: '推荐状态: 1-推荐, 0-普通, -1-不推荐', default: 0 })
+  recommend_status: number;
 
   @Column({ length: 20, comment: '音乐来源平台: kugou-酷狗音乐, netease-网易云音乐', default: 'kugou' })
   source: string;

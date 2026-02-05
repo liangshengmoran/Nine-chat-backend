@@ -1,4 +1,4 @@
-import { Column, Entity } from 'typeorm';
+import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from 'src/common/entity/baseEntity';
 
 /**
@@ -6,6 +6,8 @@ import { BaseEntity } from 'src/common/entity/baseEntity';
  * 存储用户在房间内发送的消息记录
  */
 @Entity({ name: 'tb_message' })
+@Index('idx_message_room', ['room_id'])
+@Index('idx_message_user', ['user_id'])
 export class MessageEntity extends BaseEntity {
   @Column({ comment: '发送消息的用户ID' })
   user_id: number;

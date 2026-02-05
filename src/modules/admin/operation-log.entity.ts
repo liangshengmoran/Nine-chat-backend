@@ -1,4 +1,4 @@
-import { Column, Entity } from 'typeorm';
+import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from 'src/common/entity/baseEntity';
 
 /**
@@ -6,12 +6,10 @@ import { BaseEntity } from 'src/common/entity/baseEntity';
  * 记录管理员的操作日志
  */
 @Entity({ name: 'tb_operation_log' })
+@Index('idx_oplog_operator', ['operator_id'])
 export class OperationLogEntity extends BaseEntity {
   @Column({ comment: '操作者用户ID' })
   operator_id: number;
-
-  @Column({ length: 50, comment: '操作者昵称' })
-  operator_nick: string;
 
   @Column({
     length: 50,

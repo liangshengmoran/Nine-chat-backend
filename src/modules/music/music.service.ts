@@ -182,7 +182,7 @@ export class MusicService {
     const { music_mid, music_name, music_singer, music_album, music_cover, music_albumpic, source } = params;
     const { user_id, user_role } = payload;
     const c = await this.CollectModel.count({
-      where: { music_mid, user_id, is_delete: 1 },
+      where: { music_mid, user_id, status: 1 },
     });
     if (c > 0) {
       throw new HttpException(`您已经收藏过这首歌了！`, HttpStatus.BAD_REQUEST);
@@ -209,13 +209,13 @@ export class MusicService {
       music_album: music_album || '',
       music_cover: music_cover || music_albumpic || '',
       source: source || 'kugou',
-      is_recommend: isRecommend,
+      recommend_status: isRecommend,
     };
 
     const m = await this.MusicModel.count({ where: { music_mid } });
     if (m) {
       if (isRecommend) {
-        return await this.MusicModel.update({ music_mid }, { is_recommend: 1 });
+        return await this.MusicModel.update({ music_mid }, { recommend_status: 1 });
       }
       return '收藏成功';
     }
@@ -230,7 +230,7 @@ export class MusicService {
     }
     const { user_id } = payload;
     return await this.CollectModel.find({
-      where: { user_id, is_delete: 1 },
+      where: { user_id, status: 1 },
       order: { id: 'DESC' },
       skip: (page - 1) * pagesize,
       take: pagesize,
@@ -243,10 +243,10 @@ export class MusicService {
     const { music_mid } = params;
     const { user_id } = payload;
     const u = await this.CollectModel.findOne({
-      where: { user_id, music_mid, is_delete: 1 },
+      where: { user_id, music_mid, status: 1 },
     });
     if (u) {
-      await this.CollectModel.update({ id: u.id }, { is_delete: -1 });
+      await this.CollectModel.update({ id: u.id }, { status: 0 });
       return '移除完成';
     } else {
       throw new HttpException('无权移除此歌曲！', HttpStatus.BAD_REQUEST);
@@ -269,7 +269,7 @@ export class MusicService {
       // 如果酷狗接口失败，回退到用户收藏列表
       const { user_id = 1 } = params;
       return await this.CollectModel.find({
-        where: { user_id, is_delete: 1 },
+        where: { user_id, status: 1 },
         order: { id: 'DESC' },
         skip: (page - 1) * pagesize,
         take: pagesize,

@@ -10,9 +10,6 @@ export class FeedbackEntity extends BaseEntity {
   @Column({ comment: '反馈用户ID' })
   user_id: number;
 
-  @Column({ length: 50, comment: '反馈用户昵称' })
-  user_nick: string;
-
   @Column({ default: 0, comment: '反馈类型: 0-建议, 1-Bug反馈, 2-举报, 3-其他' })
   type: number;
 
@@ -33,9 +30,6 @@ export class FeedbackEntity extends BaseEntity {
 
   @Column({ nullable: true, comment: '处理人ID' })
   handler_id: number;
-
-  @Column({ length: 50, nullable: true, comment: '处理人昵称' })
-  handler_nick: string;
 
   @Column({ nullable: true, comment: '处理时间' })
   handled_at: Date;

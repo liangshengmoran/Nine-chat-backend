@@ -16,9 +16,6 @@ export class IpBlacklistEntity extends BaseEntity {
   @Column({ comment: '操作者ID' })
   operator_id: number;
 
-  @Column({ length: 50, comment: '操作者昵称' })
-  operator_nick: string;
-
   @Column({ default: 1, comment: '状态: 1-封禁中, 0-已解除' })
   status: number;
 

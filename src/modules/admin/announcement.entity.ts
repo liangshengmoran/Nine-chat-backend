@@ -16,9 +16,6 @@ export class AnnouncementEntity extends BaseEntity {
   @Column({ comment: '发布者用户ID' })
   publisher_id: number;
 
-  @Column({ length: 50, comment: '发布者昵称' })
-  publisher_nick: string;
-
   @Column({ default: 1, comment: '公告状态: 1-显示, 0-隐藏' })
   status: number;
 
