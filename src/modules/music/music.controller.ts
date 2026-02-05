@@ -4,6 +4,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiQuery, ApiBody } 
 import { searchDto } from './dto/search.dto';
 import { addAlbumDto } from './dto/addAlbum.dto';
 import { collectMusicDto, removeCollectDto, collectListDto, hotDto } from './dto/music.dto';
+import { RefillMusicDto } from './dto/refill.dto';
 
 @ApiTags('Music - 音乐模块')
 @Controller('music')
@@ -266,5 +267,39 @@ export class MusicController {
   @ApiResponse({ status: 400, description: '获取歌曲详情失败' })
   getDetail(@Query('id') id: string, @Query('source') source = 'kugou') {
     return this.MusicService.getDetail(id, source);
+  }
+
+  @Post('/debug/refill')
+  @ApiOperation({
+    summary: '[调试] 填充曲库',
+    description: `调试接口：通过搜索关键词批量添加歌曲到曲库。
+
+**默认关键词：** 热门、流行、经典、抖音、网红、周杰伦、陈奕迅、林俊杰
+
+**注意：** 
+- 此接口用于开发调试，可快速填充曲库
+- clearExisting=true 会清空现有曲库后再填充
+- 建议在曲库为空或歌曲播放失败时使用`,
+  })
+  @ApiBody({ type: RefillMusicDto })
+  @ApiResponse({
+    status: 200,
+    description: '填充成功',
+    schema: {
+      example: {
+        success: true,
+        message: '曲库填充完成',
+        data: {
+          added_count: 50,
+          skipped_count: 10,
+          failed_keywords: [],
+          total_count: 52,
+          added_songs: [{ music_name: '晴天', music_singer: '周杰伦' }],
+        },
+      },
+    },
+  })
+  refillLibrary(@Body() params: RefillMusicDto) {
+    return this.MusicService.refillMusicLibrary(params);
   }
 }

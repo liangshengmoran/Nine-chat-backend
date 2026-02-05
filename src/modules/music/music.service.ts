@@ -85,6 +85,73 @@ export class MusicService {
     return musicList;
   }
 
+  /**
+   * @desc 调试接口：强制重新填充曲库
+   * @param keywords 搜索关键词数组
+   * @param pageSize 每个关键词获取的歌曲数量
+   * @param clearExisting 是否清空现有曲库
+   */
+  async refillMusicLibrary(params: { keywords?: string[]; pageSize?: number; clearExisting?: boolean }) {
+    const {
+      keywords = ['热门', '流行', '经典', '抖音', '网红', '周杰伦', '陈奕迅', '林俊杰'],
+      pageSize = 10,
+      clearExisting = false,
+    } = params;
+
+    // 如果需要清空现有曲库
+    if (clearExisting) {
+      const deleteResult = await this.MusicModel.delete({});
+      console.log(`已清空曲库，删除了 ${deleteResult.affected} 首歌曲`);
+    }
+
+    const addedSongs = [];
+    const failedKeywords = [];
+    const existingSongs = [];
+
+    for (const keyword of keywords) {
+      try {
+        const result = await searchMusicUnified(keyword, 1, pageSize, 'kugou');
+        for (const music of result.list) {
+          const { music_mid } = music;
+          const existingMusic = await this.MusicModel.findOne({ where: { music_mid } });
+          if (!existingMusic) {
+            const musicData = {
+              music_mid,
+              music_name: music.music_name || '',
+              music_singer: music.music_singer || '',
+              music_album: music.music_album || '',
+              music_cover: music.music_cover || '',
+              music_duration: music.music_duration || 0,
+              source: 'kugou',
+            };
+            await this.MusicModel.save(musicData);
+            addedSongs.push(musicData);
+          } else {
+            existingSongs.push(music.music_name);
+          }
+        }
+      } catch (error) {
+        console.error(`搜索关键词 "${keyword}" 失败:`, error.message);
+        failedKeywords.push(keyword);
+      }
+    }
+
+    const totalCount = await this.MusicModel.count();
+    console.log(`曲库填充完成: 新增 ${addedSongs.length} 首，总共 ${totalCount} 首`);
+
+    return {
+      success: true,
+      message: `曲库填充完成`,
+      data: {
+        added_count: addedSongs.length,
+        skipped_count: existingSongs.length,
+        failed_keywords: failedKeywords,
+        total_count: totalCount,
+        added_songs: addedSongs.slice(0, 10), // 只返回前10首作为示例
+      },
+    };
+  }
+
   /* 查询搜索音乐 - 支持多音源 */
   async search(params) {
     const { keyword, page = 1, pagesize = 30, source = 'kugou' } = params;
