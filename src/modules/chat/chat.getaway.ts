@@ -815,4 +815,62 @@ export class WsChatGateway {
     });
     return moderators.map((m) => m.user_id);
   }
+
+  // ==================== Bot API 支持方法 ====================
+
+  /**
+   * @desc Bot 消息广播到房间
+   * @param room_id 房间ID
+   * @param messageData 消息数据 (已包含 user_info)
+   */
+  broadcastBotMessage(room_id: number, messageData: any) {
+    this.socket.to(String(room_id)).emit('message', { code: 1, data: messageData });
+  }
+
+  /**
+   * @desc Bot 点歌处理
+   * @param room_id 房间ID
+   * @param music_mid 歌曲ID
+   * @param source 音源
+   * @param botUserInfo Bot用户信息
+   */
+  async handleBotChooseMusic(room_id: number, music_mid: string, source: string, botUserInfo: any) {
+    const roomData = this.room_list_map[Number(room_id)];
+    if (!roomData) {
+      throw new Error('房间不存在或未启动');
+    }
+
+    // 添加到点歌队列
+    const musicQueueItem = {
+      music_mid,
+      source: source || 'kugou',
+      chooser_info: botUserInfo,
+      choose_time: new Date(),
+    };
+
+    roomData.music_queue_list.push(musicQueueItem);
+
+    // 广播队列更新
+    this.socket.to(String(room_id)).emit('chooseMusic', {
+      music_queue_list: roomData.music_queue_list,
+      msg: `Bot [${botUserInfo.user_nick}] 点了一首歌`,
+    });
+  }
+
+  /**
+   * @desc 获取房间在线用户数
+   * @param room_id 房间ID
+   */
+  getRoomOnlineCount(room_id: number): number {
+    const roomData = this.room_list_map[Number(room_id)];
+    return roomData?.on_line_user_list?.length || 0;
+  }
+
+  /**
+   * @desc 获取房间信息 (供Bot API使用)
+   * @param room_id 房间ID
+   */
+  getRoomData(room_id: number): any {
+    return this.room_list_map[Number(room_id)] || null;
+  }
 }

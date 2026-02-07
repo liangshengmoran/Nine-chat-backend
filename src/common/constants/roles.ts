@@ -1,6 +1,6 @@
 /**
- * 用户权限系统 - 6级权限体系
- * super (最高权限) → admin → owner → moderator → user → guest (最低权限)
+ * 用户权限系统 - 7级权限体系 (含Bot)
+ * super (最高权限) → admin → owner → moderator → user / bot → guest (最低权限)
  */
 
 // 用户角色枚举
@@ -10,21 +10,23 @@ export enum UserRole {
   OWNER = 'owner', // 房主 - 房间管理权限（运行时计算）
   MODERATOR = 'moderator', // 房间管理员 - 协助管理权限（数据库存储）
   USER = 'user', // 普通用户 - 基础互动权限
+  BOT = 'bot', // 机器人 - API接入权限
   GUEST = 'guest', // 游客 - 仅限浏览
 }
 
 // 全局角色（存储在用户表中）
-export type GlobalRole = 'super' | 'admin' | 'user' | 'guest';
+export type GlobalRole = 'super' | 'admin' | 'user' | 'bot' | 'guest';
 
 // 房间角色（运行时计算或从房间管理员表获取）
 export type RoomRole = 'owner' | 'moderator';
 
 // 有效角色（综合全局角色和房间角色后的最终角色）
-export type EffectiveRole = 'super' | 'admin' | 'owner' | 'moderator' | 'user' | 'guest';
+export type EffectiveRole = 'super' | 'admin' | 'owner' | 'moderator' | 'user' | 'bot' | 'guest';
 
 // 权限等级映射 (数值越高权限越大)
 export const ROLE_LEVEL: Record<string, number> = {
   [UserRole.GUEST]: 0,
+  [UserRole.BOT]: 1, // Bot与普通用户同级
   [UserRole.USER]: 1,
   [UserRole.MODERATOR]: 2,
   [UserRole.OWNER]: 3,
@@ -39,6 +41,7 @@ export const ROLE_NAMES: Record<string, string> = {
   [UserRole.OWNER]: '房主',
   [UserRole.MODERATOR]: '房间管理员',
   [UserRole.USER]: '用户',
+  [UserRole.BOT]: '机器人',
   [UserRole.GUEST]: '游客',
 };
 
@@ -49,6 +52,7 @@ export const ROLE_COLORS: Record<string, string> = {
   [UserRole.OWNER]: '#9b59b6', // 紫色
   [UserRole.MODERATOR]: '#3498db', // 蓝色
   [UserRole.USER]: '#999999', // 灰色
+  [UserRole.BOT]: '#667eea', // 渐变紫蓝
   [UserRole.GUEST]: '#cccccc', // 浅灰色
 };
 

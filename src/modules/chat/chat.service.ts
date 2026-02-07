@@ -6,6 +6,7 @@ import { MessageEntity } from './message.entity';
 import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Repository, In } from 'typeorm';
 import { requestHtml } from 'src/utils/spider';
+import { BotEntity } from '../bot/bot.entity';
 
 @Injectable()
 export class ChatService {
@@ -18,6 +19,8 @@ export class ChatService {
     private readonly RoomModel: Repository<RoomEntity>,
     @InjectRepository(RoomModeratorEntity)
     private readonly ModeratorModel: Repository<RoomModeratorEntity>,
+    @InjectRepository(BotEntity)
+    private readonly BotModel: Repository<BotEntity>,
   ) {}
 
   async onModuleInit() {
@@ -55,20 +58,52 @@ export class ChatService {
 
     /* 收集此次所有的用户id 包含发送消息的和被艾特消息的 */
     const userIds = [];
+    const botIds = []; // Bot ID 是负数
     const quoteMessageIds = [];
 
     messageInfo.forEach((t) => {
-      !userIds.includes(t.user_id) && userIds.push(t.user_id);
-      !userIds.includes(t.quote_user_id) && t.quote_user_id && userIds.push(t.quote_user_id);
+      if (t.user_id < 0) {
+        // Bot 消息，user_id 是负数，实际 Bot ID 是 -user_id
+        const botId = -t.user_id;
+        !botIds.includes(botId) && botIds.push(botId);
+      } else {
+        !userIds.includes(t.user_id) && userIds.push(t.user_id);
+      }
+      !userIds.includes(t.quote_user_id) && t.quote_user_id && t.quote_user_id > 0 && userIds.push(t.quote_user_id);
       !quoteMessageIds.includes(t.quote_message_id) && t.quote_message_id && quoteMessageIds.push(t.quote_message_id);
     });
 
-    const userInfoList = await this.UserModel.find({
-      where: { id: In(userIds) },
-      select: ['id', 'user_nick', 'user_avatar', 'user_role'],
-    });
+    // 查询正常用户信息
+    const userInfoList: any[] =
+      userIds.length > 0
+        ? await this.UserModel.find({
+            where: { id: In(userIds) },
+            select: ['id', 'user_nick', 'user_avatar', 'user_role'],
+          })
+        : [];
 
     userInfoList.forEach((t: any) => (t.user_id = t.id));
+
+    // 查询 Bot 信息并构建 user_info
+    if (botIds.length > 0) {
+      const bots = await this.BotModel.find({
+        where: { id: In(botIds) },
+        select: ['id', 'bot_name', 'bot_username', 'bot_avatar'],
+      });
+
+      bots.forEach((bot) => {
+        userInfoList.push({
+          id: -bot.id, // 负数 ID 标识 Bot
+          user_id: -bot.id,
+          user_nick: bot.bot_name,
+          user_username: bot.bot_username,
+          user_avatar: bot.bot_avatar || '/images/default-bot-avatar.png',
+          user_role: 'bot',
+          is_bot: true,
+          bot_id: bot.id,
+        });
+      });
+    }
 
     /* 获取该房间的房管列表 */
     const moderators = await this.ModeratorModel.find({
@@ -77,9 +112,11 @@ export class ChatService {
     });
     const moderatorIds = moderators.map((m) => m.user_id);
 
-    /* 为用户信息添加 is_moderator 标记 */
+    /* 为用户信息添加 is_moderator 标记 (仅限正常用户) */
     userInfoList.forEach((t: any) => {
-      t.is_moderator = moderatorIds.includes(t.id);
+      if (!t.is_bot) {
+        t.is_moderator = moderatorIds.includes(t.id);
+      }
     });
 
     /* 相关联的引用消息的信息 */
@@ -92,7 +129,8 @@ export class ChatService {
 
     /* 对引用消息通过user_id拿到此条消息的user_nick 并修改字段名称 */
     messageInfoList.forEach((t: any) => {
-      t.quote_user_nick = userInfoList.find((k: any) => k.user_id === t.user_id)['user_nick'];
+      const quoteUser = userInfoList.find((k: any) => k.user_id === t.user_id);
+      t.quote_user_nick = quoteUser?.user_nick || '未知用户';
       t.quote_message_content = JSON.parse(t.message_content);
       t.quote_message_type = t.message_type;
       t.quote_message_status = t.message_status;

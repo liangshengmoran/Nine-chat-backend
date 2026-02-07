@@ -4,7 +4,18 @@
 
 export const secret = 'chat-cooper';
 export const expiresIn = '7d';
-export const whiteList = ['/api/user/login', '/api/user/register', '/api/upload/file', '/api/music/debug/refill'];
+export const whiteList = [
+  '/api/user/login',
+  '/api/user/register',
+  '/api/upload/file',
+  '/api/music/debug/refill',
+  // Bot API - 使用 BotGuard 认证，绕过 JWT AuthGuard
+  '/api/bot/info',
+  '/api/bot/sendMessage',
+  '/api/bot/chooseMusic',
+  '/api/bot/getMessages',
+  '/api/bot/getRoomInfo',
+];
 
 /**
  * post 请求的白名单，不限制身份的

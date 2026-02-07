@@ -9,11 +9,12 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { UploadModule } from './modules/upload/upload.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { BotModule } from './modules/bot/bot.module';
 
 @Module({
   imports: [
     ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'public'),
+      rootPath: join(__dirname, '..', '..', 'public'),
     }),
     ConfigModule.load(resolve(__dirname, 'config', '**/!(*.d).{ts,js}')),
     TypeOrmModule.forRootAsync({
@@ -25,6 +26,7 @@ import { AdminModule } from './modules/admin/admin.module';
     UserModule,
     UploadModule,
     AdminModule,
+    BotModule,
   ],
   controllers: [],
   providers: [],
