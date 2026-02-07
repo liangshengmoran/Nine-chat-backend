@@ -5,7 +5,7 @@ import { BotGuard } from 'src/guard/bot.guard';
 import { AuthGuard } from '../../guard/auth.guard';
 import { CreateBotDto, UpdateBotDto, BotSendMessageDto, BotChooseMusicDto, BotGetMessagesDto } from './dto/bot.dto';
 
-@ApiTags('Bot - 机器人接口')
+@ApiTags('Bot')
 @Controller('bot')
 export class BotController {
   constructor(private readonly botService: BotService) {}

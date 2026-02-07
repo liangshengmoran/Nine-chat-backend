@@ -30,7 +30,7 @@ import {
   ExportDataDto,
 } from './dto/admin.dto';
 
-@ApiTags('Admin - 管理后台')
+@ApiTags('Admin')
 @Controller('admin')
 @UseGuards(AdminGuard)
 export class AdminController {

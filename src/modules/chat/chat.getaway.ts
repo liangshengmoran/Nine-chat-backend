@@ -536,7 +536,6 @@ export class WsChatGateway {
         skip: randomIndex,
       });
       const random_music = music[0];
-      /* TODO 如果删除了db 可能导致这个随机id查不到数据，要保证不要删除tb_music的数据 或者自定义id用于随机歌曲查询 或增加一个随机歌曲的爬虫方法 */
       if (!random_music) {
         return;
       }

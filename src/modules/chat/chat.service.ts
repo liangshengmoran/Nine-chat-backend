@@ -125,13 +125,16 @@ export class ChatService {
       select: ['id', 'message_content', 'message_type', 'user_id', 'message_status'],
     });
 
-    /* TODO 消息列表中的用户 */
-
     /* 对引用消息通过user_id拿到此条消息的user_nick 并修改字段名称 */
     messageInfoList.forEach((t: any) => {
       const quoteUser = userInfoList.find((k: any) => k.user_id === t.user_id);
       t.quote_user_nick = quoteUser?.user_nick || '未知用户';
-      t.quote_message_content = JSON.parse(t.message_content);
+      // 安全解析消息内容
+      try {
+        t.quote_message_content = JSON.parse(t.message_content);
+      } catch (e) {
+        t.quote_message_content = t.message_content;
+      }
       t.quote_message_type = t.message_type;
       t.quote_message_status = t.message_status;
       t.quote_message_id = t.id;

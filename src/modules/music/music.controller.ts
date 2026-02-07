@@ -6,7 +6,7 @@ import { addAlbumDto } from './dto/addAlbum.dto';
 import { collectMusicDto, removeCollectDto, collectListDto, hotDto } from './dto/music.dto';
 import { RefillMusicDto } from './dto/refill.dto';
 
-@ApiTags('Music - 音乐模块')
+@ApiTags('Music')
 @Controller('music')
 export class MusicController {
   constructor(private readonly MusicService: MusicService) {}
