@@ -68,9 +68,8 @@ export class AdminController {
 **查询参数：**
 - \`page\`: 页码（默认1）
 - \`pagesize\`: 每页数量（默认20）
-- \`keyword\`: 搜索关键词（匹配用户名/昵称/邮箱）
-- \`role\`: 筛选角色（super/admin/user）
-- \`status\`: 筛选状态（1=正常, 0=封禁）`,
+- \`keyword\`: 搜索关键词（匹配用户名/昵称）
+- \`role\`: 筛选角色（super/admin/user）`,
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   getUserList(@Query() params: UserQueryDto) {
@@ -263,7 +262,6 @@ export class AdminController {
 - \`room_id\`: 筛选房间ID
 - \`user_id\`: 筛选用户ID
 - \`keyword\`: 搜索消息内容
-- \`type\`: 消息类型（text/image/music/special）
 
 **返回内容：**
 - 消息ID、内容、类型、状态
@@ -303,8 +301,7 @@ export class AdminController {
 **可修改字段：**
 - \`room_name\`: 房间名称
 - \`room_notice\`: 房间公告
-- \`room_bg\`: 背景图
-- \`room_password\`: 房间密码（设为空则取消密码）`,
+- \`room_need_password\`: 是否需要密码（1-是, 0-否）`,
   })
   @ApiResponse({ status: 200, description: '更新成功' })
   @ApiResponse({ status: 404, description: '房间不存在' })
@@ -341,9 +338,9 @@ export class AdminController {
     description: `管理员创建系统公告。
 
 **请求参数：**
-- \`title\`: 公告标题
-- \`content\`: 公告内容（支持 Markdown）
-- \`priority\`: 优先级（高优先级置顶显示）
+- \`title\`: 公告标题（必填）
+- \`content\`: 公告内容（必填，支持 Markdown）
+- \`type\`: 公告类型（0-普通, 1-重要, 2-紧急，默认0）
 - \`expire_at\`: 过期时间（可选）`,
   })
   @ApiResponse({ status: 200, description: '创建成功' })
@@ -358,11 +355,11 @@ export class AdminController {
     description: `管理员更新公告信息。
 
 **可修改字段：**
+- \`id\`: 公告ID（必填）
 - \`title\`: 公告标题
 - \`content\`: 公告内容
-- \`priority\`: 优先级
-- \`expire_at\`: 过期时间
-- \`status\`: 状态（1=启用, 0=禁用）`,
+- \`type\`: 公告类型（0-普通, 1-重要, 2-紧急）
+- \`status\`: 状态（1=显示, 0=隐藏）`,
   })
   @ApiResponse({ status: 200, description: '更新成功' })
   @ApiResponse({ status: 404, description: '公告不存在' })
@@ -421,7 +418,8 @@ export class AdminController {
 - \`page\`: 页码
 - \`pagesize\`: 每页数量
 - \`operator_id\`: 筛选操作者ID
-- \`action\`: 筛选操作类型
+- \`action_type\`: 筛选操作类型
+- \`target_type\`: 筛选目标类型
 
 **返回内容：**
 - 操作者信息、操作类型、操作详情
@@ -500,8 +498,9 @@ export class AdminController {
     description: `添加需要过滤的敏感词。
 
 **请求参数：**
-- \`word\`: 敏感词内容
-- \`level\`: 级别（1=警告, 2=拦截, 3=封禁）
+- \`word\`: 敏感词内容（必填）
+- \`type\`: 类型（0=替换为*, 1=直接拒绝发送，默认0）
+- \`replacement\`: 替换文本（可选，type=0 时生效）
 
 **功能说明：**
 - 用户发送包含敏感词的消息时会触发过滤`,
@@ -543,10 +542,10 @@ export class AdminController {
     description: `用户提交反馈或建议。
 
 **请求参数：**
-- \`title\`: 反馈标题
-- \`content\`: 反馈内容
-- \`type\`: 类型（bug/suggestion/other）
-- \`contact\`: 联系方式（可选）`,
+- \`title\`: 反馈标题（必填）
+- \`content\`: 反馈内容（必填）
+- \`type\`: 类型（0-建议, 1-Bug反馈, 2-举报, 3-其他，可选）
+- \`images\`: 附件图片URL（可选）`,
   })
   @ApiResponse({ status: 200, description: '提交成功' })
   createFeedback(@Request() req, @Body() params: CreateFeedbackDto) {
@@ -571,9 +570,9 @@ export class AdminController {
     description: `管理员回复处理用户反馈。
 
 **请求参数：**
-- \`id\`: 反馈ID
-- \`reply\`: 回复内容
-- \`status\`: 状态（1=待处理, 2=处理中, 3=已解决, 4=已关闭）`,
+- \`id\`: 反馈ID（必填）
+- \`status\`: 处理状态（0-待处理, 1-处理中, 2-已解决, 3-已忽略，必填）
+- \`reply\`: 管理员回复（可选）`,
   })
   @ApiResponse({ status: 200, description: '处理成功' })
   replyFeedback(@Request() req, @Body() params: ReplyFeedbackDto) {
@@ -600,12 +599,12 @@ export class AdminController {
     description: `管理员生成新的邀请码。
 
 **请求参数：**
-- \`count\`: 生成数量（默认1）
-- \`expire_days\`: 有效天数（默认7天）
-- \`max_uses\`: 最大使用次数（默认1次）
+- \`max_uses\`: 可使用次数（默认1次）
+- \`expire_at\`: 过期时间（可选）
+- \`remark\`: 备注（可选）
 
 **返回内容：**
-- 生成的邀请码列表`,
+- 生成的邀请码信息`,
   })
   @ApiResponse({ status: 200, description: '生成成功' })
   createInviteCode(@Request() req, @Body() params: CreateInviteCodeDto) {
@@ -689,16 +688,15 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '导出数据',
-    description: `导出系统数据为 JSON/CSV 格式。
+    description: `导出系统数据。
 
 **请求参数：**
-- \`type\`: 数据类型（users/messages/rooms/music）
-- \`format\`: 导出格式（json/csv）
+- \`type\`: 数据类型（users/messages/rooms/music，必填）
 - \`start_date\`: 开始日期（可选）
 - \`end_date\`: 结束日期（可选）
 
 **返回内容：**
-- 导出的数据内容或下载链接`,
+- 导出的数据内容`,
   })
   @ApiResponse({ status: 200, description: '导出成功' })
   exportData(@Body() params: ExportDataDto) {

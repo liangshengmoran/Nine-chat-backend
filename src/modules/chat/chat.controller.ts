@@ -2,6 +2,7 @@ import { Controller, Post, Body, Get, Query, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { ChatService } from './chat.service';
 import { HistoryDto } from './dto/history.dto';
+import { CreateRoomDto, UpdateRoomInfoDto, ModeratorListDto } from './dto/chat.dto';
 
 @ApiTags('Chat')
 @Controller('chat')
@@ -39,7 +40,7 @@ export class ChatController {
   })
   @ApiResponse({ status: 200, description: '创建成功' })
   @ApiResponse({ status: 401, description: '未授权' })
-  createRoom(@Body() params, @Request() req) {
+  createRoom(@Body() params: CreateRoomDto, @Request() req) {
     return this.ChatService.createRoom(params, req);
   }
 
@@ -63,7 +64,7 @@ export class ChatController {
   @ApiResponse({ status: 200, description: '更新成功' })
   @ApiResponse({ status: 401, description: '未授权' })
   @ApiResponse({ status: 403, description: '无权限修改此房间' })
-  updateRoomInfo(@Body() params, @Request() req) {
+  updateRoomInfo(@Body() params: UpdateRoomInfoDto, @Request() req) {
     return this.ChatService.updateRoomInfo(params, req.payload);
   }
 
@@ -77,7 +78,7 @@ export class ChatController {
   })
   @ApiQuery({ name: 'room_id', required: true, description: '房间 ID' })
   @ApiResponse({ status: 200, description: '获取成功' })
-  getModeratorList(@Query() params) {
+  getModeratorList(@Query() params: ModeratorListDto) {
     return this.ChatService.getModeratorList(params);
   }
 }

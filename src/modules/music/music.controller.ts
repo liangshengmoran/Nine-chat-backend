@@ -13,7 +13,7 @@ export class MusicController {
 
   @Post('/getAlbumList')
   @ApiOperation({
-    summary: '添加专辑歌曲',
+    summary: '通过专辑批量添加歌曲',
     description: '根据酷狗专辑 ID 批量添加歌曲到曲库，用于初始化歌曲库',
   })
   @ApiBody({ type: addAlbumDto })

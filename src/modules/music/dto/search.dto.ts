@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class searchDto {
-  @ApiProperty({ example: '孤城', description: '关键词', required: false })
+  @ApiProperty({ example: '孤城', description: '关键词', required: true })
   keyword: string;
 
   @ApiProperty({ example: 1, description: '页码', required: false })

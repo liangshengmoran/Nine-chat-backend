@@ -4,6 +4,7 @@ import { Body, Controller, Post, Request, Get, Query } from '@nestjs/common';
 import { UserRegisterDto } from './dto/register.user.dto';
 import { UserLoginDto } from './dto/login.user.dto';
 import { ChangePasswordDto } from './dto/changePassword.dto';
+import { UserQueryDto, UserUpdateDto } from './dto/user.dto';
 
 @Controller('/user')
 @ApiTags('User')
@@ -50,7 +51,7 @@ export class UserController {
     description: '根据用户 ID 查询指定用户的公开信息',
   })
   @ApiResponse({ status: 200, description: '查询成功' })
-  query(@Query() params) {
+  query(@Query() params: UserQueryDto) {
     return this.userService.query(params);
   }
 
@@ -62,7 +63,7 @@ export class UserController {
   })
   @ApiResponse({ status: 200, description: '更新成功' })
   @ApiResponse({ status: 401, description: '未授权' })
-  update(@Request() req, @Body() params) {
+  update(@Request() req, @Body() params: UserUpdateDto) {
     return this.userService.update(req.payload, params);
   }
 

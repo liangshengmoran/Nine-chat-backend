@@ -42,7 +42,7 @@ export class UserRegisterDto {
     enum: [1, 2],
   })
   @IsOptional()
-  @IsEnum([1, 2], { message: 'sex只能是1或者2' })
+  @IsEnum([1, 2], { message: 'user_status只能是1或者2' })
   @Type(() => Number)
   user_status: number;
 }

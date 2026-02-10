@@ -141,7 +141,7 @@ export class BotSendMessageDto {
   @IsString()
   message_type: string;
 
-  @ApiProperty({ description: '消息内容' })
+  @ApiProperty({ description: '消息内容', example: 'Hello from Bot!' })
   @IsNotEmpty({ message: '消息内容不能为空' })
   message_content: any;
 }

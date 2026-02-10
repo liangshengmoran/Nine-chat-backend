@@ -12,7 +12,8 @@ const swaggerOptions = new DocumentBuilder()
 - **Chat** - 聊天房间、消息历史、表情包
 - **Music** - 歌曲搜索、收藏管理、热门歌曲
 - **Bot** - 机器人API，第三方Bot接入
-- **Upload** - 文件上传
+- **Upload** - 上传模块，文件/图片上传
+- **Admin** - 管理员模块，用户、房间、曲库管理
 
 ### 认证方式
 

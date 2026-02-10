@@ -4,6 +4,7 @@ import { BotService } from './bot.service';
 import { BotGuard } from 'src/guard/bot.guard';
 import { AuthGuard } from '../../guard/auth.guard';
 import { CreateBotDto, UpdateBotDto, BotSendMessageDto, BotChooseMusicDto, BotGetMessagesDto } from './dto/bot.dto';
+import { BotRejectDto, BotSuspendDto, BotPermissionsDto, AddBotManagerDto } from './dto/bot-admin.dto';
 
 @ApiTags('Bot')
 @Controller('bot')
@@ -47,15 +48,29 @@ bot_<时间戳36进制>_<32字符随机hex>
         data: {
           id: 1,
           bot_name: 'My Awesome Bot',
+          bot_username: 'awesome_bot',
           bot_token: 'bot_m5x2k8_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6',
           owner_id: 123,
+          bot_avatar: null,
+          bot_description: null,
           allowed_rooms: '888,999',
           rate_limit: 60,
           music_cooldown: 8,
           status: 1,
+          approval_status: 'pending',
+          permissions: {
+            can_send_message: true,
+            can_send_image: false,
+            can_choose_music: true,
+            can_read_history: true,
+            can_mention_users: false,
+            can_pin_message: false,
+            max_message_length: 2000,
+          },
           createdAt: '2026-02-06T10:00:00.000Z',
         },
-        message: 'Bot创建成功',
+        success: true,
+        message: '请求成功',
       },
     },
   })
@@ -87,15 +102,23 @@ bot_<时间戳36进制>_<32字符随机hex>
           {
             id: 1,
             bot_name: 'My Bot',
+            bot_username: 'my_bot',
             bot_avatar: '/avatars/bot.png',
+            bot_description: '一个聊天Bot',
             status: 1,
+            approval_status: 'approved',
+            allowed_rooms: '888,999',
             rate_limit: 60,
+            music_cooldown: 8,
             total_requests: 1234,
             today_requests: 56,
+            owner_id: 123,
             createdAt: '2026-02-01T00:00:00.000Z',
             last_active_at: '2026-02-06T10:00:00.000Z',
           },
         ],
+        success: true,
+        message: '请求成功',
       },
     },
   })
@@ -171,15 +194,16 @@ bot_<时间戳36进制>_<32字符随机hex>
   })
   @ApiParam({ name: 'id', description: 'Bot ID', example: 1 })
   @ApiResponse({
-    status: 201,
+    status: 200,
     description: 'Token重新生成成功',
     schema: {
       example: {
         code: 200,
         data: {
-          bot_token: 'bot_m5x3k9_new1token2here3',
+          token: 'bot_m5x3k9_new1token2here3',
         },
-        message: 'Token已重新生成',
+        success: true,
+        message: '请求成功',
       },
     },
   })
@@ -196,8 +220,9 @@ bot_<时间戳36进制>_<32字符随机hex>
     summary: '获取Bot信息',
     description: `获取当前Bot的详细信息。
 
-**认证方式：**
+**认证方式（二选一）：**
 \`\`\`
+X-Bot-Token: <token>
 Authorization: Bot <token>
 \`\`\`
 
@@ -212,13 +237,23 @@ Authorization: Bot <token>
     description: '获取成功',
     schema: {
       example: {
-        id: 1,
-        bot_name: 'My Bot',
-        bot_avatar: '/avatars/bot.png',
-        status: 1,
-        allowed_rooms: '888,999',
-        rate_limit: 60,
-        total_requests: 1234,
+        code: 200,
+        data: {
+          id: 1,
+          bot_name: 'My Bot',
+          bot_username: 'my_bot',
+          bot_avatar: '/avatars/bot.png',
+          bot_description: '一个聊天Bot',
+          status: 1,
+          rate_limit: 60,
+          music_cooldown: 8,
+          allowed_rooms: [888, 999],
+          webhook_configured: false,
+          last_active_at: '2026-02-06T10:00:00.000Z',
+          total_requests: 1234,
+        },
+        success: true,
+        message: '请求成功',
       },
     },
   })
@@ -233,8 +268,9 @@ Authorization: Bot <token>
     summary: 'Bot发送消息',
     description: `向指定房间发送消息。
 
-**认证方式：**
+**认证方式（二选一）：**
 \`\`\`
+X-Bot-Token: <token>
 Authorization: Bot <token>
 \`\`\`
 
@@ -256,7 +292,7 @@ Authorization: Bot <token>
 **cURL示例：**
 \`\`\`bash
 curl -X POST http://localhost:5000/api/bot/sendMessage \\
-  -H "Authorization: Bot bot_xxx_xxx" \\
+  -H "X-Bot-Token: bot_xxx_xxx" \\
   -H "Content-Type: application/json" \\
   -d '{
     "room_id": 888,
@@ -273,11 +309,11 @@ curl -X POST http://localhost:5000/api/bot/sendMessage \\
       example: {
         code: 200,
         data: {
-          message_id: 12345,
-          message_content: 'Hello from Bot!',
-          createdAt: '2026-02-06T10:00:00.000Z',
+          message_id: 18,
+          success: true,
         },
-        message: '消息发送成功',
+        success: true,
+        message: '请求成功',
       },
     },
   })
@@ -293,8 +329,9 @@ curl -X POST http://localhost:5000/api/bot/sendMessage \\
     summary: 'Bot点歌',
     description: `向指定房间点歌。
 
-**认证方式：**
+**认证方式（二选一）：**
 \`\`\`
+X-Bot-Token: <token>
 Authorization: Bot <token>
 \`\`\`
 
@@ -312,7 +349,7 @@ Authorization: Bot <token>
 **cURL示例：**
 \`\`\`bash
 curl -X POST http://localhost:5000/api/bot/chooseMusic \\
-  -H "Authorization: Bot bot_xxx_xxx" \\
+  -H "X-Bot-Token: bot_xxx_xxx" \\
   -H "Content-Type: application/json" \\
   -d '{
     "room_id": 888,
@@ -323,15 +360,16 @@ curl -X POST http://localhost:5000/api/bot/chooseMusic \\
   })
   @ApiSecurity('Bot-auth')
   @ApiResponse({
-    status: 201,
+    status: 200,
     description: '点歌成功',
     schema: {
       example: {
         code: 200,
-        message: '点歌成功，已加入播放队列',
         data: {
-          queue_position: 3,
+          success: true,
         },
+        success: true,
+        message: '请求成功',
       },
     },
   })
@@ -347,8 +385,9 @@ curl -X POST http://localhost:5000/api/bot/chooseMusic \\
     summary: '获取消息历史',
     description: `获取指定房间的消息历史记录。
 
-**认证方式：**
+**认证方式（二选一）：**
 \`\`\`
+X-Bot-Token: <token>
 Authorization: Bot <token>
 \`\`\`
 
@@ -358,7 +397,6 @@ Authorization: Bot <token>
 
 **返回内容：**
 - 消息ID、类型、内容
-- 发送者信息（昵称、头像、角色）
 - 发送时间
 
 **房间权限：**
@@ -367,7 +405,7 @@ Authorization: Bot <token>
 **cURL示例：**
 \`\`\`bash
 curl "http://localhost:5000/api/bot/getMessages?room_id=888&page=1&pagesize=20" \\
-  -H "Authorization: Bot bot_xxx_xxx"
+  -H "X-Bot-Token: bot_xxx_xxx"
 \`\`\``,
   })
   @ApiSecurity('Bot-auth')
@@ -381,16 +419,14 @@ curl "http://localhost:5000/api/bot/getMessages?room_id=888&page=1&pagesize=20" 
       example: {
         code: 200,
         data: {
-          list: [
+          messages: [
             {
               id: 123,
               message_type: 'text',
               message_content: 'Hello!',
-              user_info: {
-                id: 1,
-                user_nick: 'User1',
-                user_avatar: '/avatars/1.png',
-              },
+              user_id: 1,
+              room_id: 888,
+              message_status: 1,
               createdAt: '2026-02-06T10:00:00.000Z',
             },
           ],
@@ -398,6 +434,8 @@ curl "http://localhost:5000/api/bot/getMessages?room_id=888&page=1&pagesize=20" 
           page: 1,
           pagesize: 20,
         },
+        success: true,
+        message: '请求成功',
       },
     },
   })
@@ -417,8 +455,9 @@ curl "http://localhost:5000/api/bot/getMessages?room_id=888&page=1&pagesize=20" 
     summary: '获取房间信息',
     description: `获取指定房间的基本信息。
 
-**认证方式：**
+**认证方式（二选一）：**
 \`\`\`
+X-Bot-Token: <token>
 Authorization: Bot <token>
 \`\`\`
 
@@ -429,7 +468,7 @@ Authorization: Bot <token>
 **cURL示例：**
 \`\`\`bash
 curl "http://localhost:5000/api/bot/getRoomInfo?room_id=888" \\
-  -H "Authorization: Bot bot_xxx_xxx"
+  -H "X-Bot-Token: bot_xxx_xxx"
 \`\`\``,
   })
   @ApiSecurity('Bot-auth')
@@ -439,8 +478,13 @@ curl "http://localhost:5000/api/bot/getRoomInfo?room_id=888" \\
     description: '获取成功',
     schema: {
       example: {
-        room_id: 888,
-        bot_has_access: true,
+        code: 200,
+        data: {
+          room_id: 888,
+          bot_has_access: true,
+        },
+        success: true,
+        message: '请求成功',
       },
     },
   })
@@ -507,9 +551,9 @@ curl "http://localhost:5000/api/bot/getRoomInfo?room_id=888" \\
     description: '拒绝Bot申请，需提供拒绝原因',
   })
   @ApiParam({ name: 'id', description: 'Bot ID' })
-  async adminRejectBot(@Req() req, @Param('id', ParseIntPipe) id: number, @Body('reason') reason: string) {
+  async adminRejectBot(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() params: BotRejectDto) {
     const { user_id } = req.payload;
-    return this.botService.adminRejectBot(id, user_id, reason || '未说明原因');
+    return this.botService.adminRejectBot(id, user_id, params.reason || '未说明原因');
   }
 
   @Post('admin/:id/suspend')
@@ -520,9 +564,9 @@ curl "http://localhost:5000/api/bot/getRoomInfo?room_id=888" \\
     description: '暂停已通过审批的Bot，需提供暂停原因',
   })
   @ApiParam({ name: 'id', description: 'Bot ID' })
-  async adminSuspendBot(@Req() req, @Param('id', ParseIntPipe) id: number, @Body('reason') reason: string) {
+  async adminSuspendBot(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() params: BotSuspendDto) {
     const { user_id } = req.payload;
-    return this.botService.adminSuspendBot(id, user_id, reason || '违规操作');
+    return this.botService.adminSuspendBot(id, user_id, params.reason || '违规操作');
   }
 
   @Put('admin/:id/permissions')
@@ -533,7 +577,7 @@ curl "http://localhost:5000/api/bot/getRoomInfo?room_id=888" \\
     description: '更新Bot的权限配置',
   })
   @ApiParam({ name: 'id', description: 'Bot ID' })
-  async adminUpdatePermissions(@Param('id', ParseIntPipe) id: number, @Body() permissions: any) {
+  async adminUpdatePermissions(@Param('id', ParseIntPipe) id: number, @Body() permissions: BotPermissionsDto) {
     return this.botService.adminUpdateBotPermissions(id, permissions);
   }
 
@@ -547,15 +591,9 @@ curl "http://localhost:5000/api/bot/getRoomInfo?room_id=888" \\
     description: '授权其他用户管理此Bot (仅Owner可操作)',
   })
   @ApiParam({ name: 'id', description: 'Bot ID' })
-  async addBotManager(
-    @Req() req,
-    @Param('id', ParseIntPipe) id: number,
-    @Body('user_id') userId: number,
-    @Body('role') role: 'admin' | 'operator' = 'operator',
-    @Body('note') note?: string,
-  ) {
+  async addBotManager(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() params: AddBotManagerDto) {
     const { user_id } = req.payload;
-    return this.botService.addBotManager(id, user_id, userId, role, note);
+    return this.botService.addBotManager(id, user_id, params.user_id, params.role || 'operator', params.note);
   }
 
   @Get(':id/managers')
