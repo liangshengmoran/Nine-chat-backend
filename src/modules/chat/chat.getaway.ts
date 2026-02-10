@@ -43,7 +43,10 @@ export class WsChatGateway {
   private onlineUserInfo: any = {}; // 在线用户信息
   private chooseMusicTimeSpace: any = {}; // 记录每位用户的点歌时间 限制30s点一首
   private room_list_map: any = {}; // 所有的在线房间列表
-  private timerList: any = {}; // 所有的在线房间列表
+  private timerList: any = {}; // 歌曲播放定时器
+  private roomCloseTimers: any = {}; // 房间延迟关闭定时器
+  // 房间空闲后延迟关闭时间（毫秒），通过环境变量 ROOM_CLOSE_DELAY_MINUTES 控制，默认5分钟
+  private readonly roomCloseDelay: number = (Number(process.env.ROOM_CLOSE_DELAY_MINUTES) || 5) * 60 * 1000;
 
   /* 连接成功 */
   async handleConnection(client: Socket): Promise<any> {
@@ -67,18 +70,10 @@ export class WsChatGateway {
       }
     });
     on_line_user_list.splice(delUserIndex, 1);
-    /* 如果这个用户离开后房间没人了 那么我们关闭这个房间已经定时器 如果还剩人那么通知房间所有人更新在线用户列表 */
-    /* 主房间默认888 如果是主房间 没人也不关闭 */
-    if (!on_line_user_list.length && Number(room_id) !== 888) {
-      clearTimeout(this.timerList[`timer${room_id}`]);
-      delete this.room_list_map[Number(room_id)];
-      /* 通知所有人房间列表变更了 */
-      const { room_name } = room_info;
-      const { user_nick: roomAdminNick } = room_admin_info;
-      return this.socket.emit('updateRoomlist', {
-        room_list: formatRoomlist(this.room_list_map),
-        msg: `[${roomAdminNick}]的房间 [${room_name}] 因房间人已全部退出被系统关闭了`,
-      });
+    /* 如果这个用户离开后房间没人了，启动延迟关闭定时器；如果还剩人则通知房间所有人更新在线用户列表 */
+    if (!on_line_user_list.length) {
+      this.scheduleRoomClose(room_id, room_info, room_admin_info);
+      return;
     }
     this.socket.to(room_id).emit('offline', {
       code: 1,
@@ -586,6 +581,19 @@ export class WsChatGateway {
             code: -1,
             msg: '您的账户已在别地登录，已为您覆盖登录！',
           });
+
+          /* 覆盖登录前，先从旧房间的在线列表移除该用户 */
+          const oldRoomId = this.clientIdMap[clientId]['room_id'];
+          const oldRoom = this.room_list_map[oldRoomId];
+          if (oldRoom) {
+            const idx = oldRoom.on_line_user_list.findIndex((u) => u.id === user_id);
+            if (idx !== -1) oldRoom.on_line_user_list.splice(idx, 1);
+            /* 如果旧房间没人了，启动延迟关闭 */
+            if (!oldRoom.on_line_user_list.length) {
+              this.scheduleRoomClose(oldRoomId, oldRoom.room_info, oldRoom.room_admin_info);
+            }
+          }
+
           /* 断开老的用户连接 并移除掉老用户的记录 */
           this.socket.in(clientId).disconnectSockets(true);
           delete this.clientIdMap[clientId];
@@ -593,7 +601,7 @@ export class WsChatGateway {
       });
 
       /* 判断用户是不是已经在房间里面了 */
-      if (Object.values(this.room_list_map).some((t: any) => t.on_line_user_list.includes(user_id))) {
+      if (Object.values(this.room_list_map).some((t: any) => t.on_line_user_list.some((u) => u.id === user_id))) {
         return client.emit('tips', { code: -2, msg: '您已经在别处登录了' });
       }
       /* 查询用户基础信息 */
@@ -682,6 +690,13 @@ export class WsChatGateway {
 
       const isHasRoom = this.room_list_map[room_id];
 
+      /* 如果房间正在等待关闭，取消关闭定时器 */
+      if (isHasRoom && this.roomCloseTimers[room_id]) {
+        clearTimeout(this.roomCloseTimers[room_id]);
+        delete this.roomCloseTimers[room_id];
+        console.log(`房间 ${room_id} 有新用户加入，取消延迟关闭`);
+      }
+
       /* 判断当前房间列表有没有这个房间，没有就新增到房间列表, 并把用户加入到房间在线列表 */
       !isHasRoom && (await this.initBasicRoomInfo(room_id, room_info));
       this.room_list_map[room_id].on_line_user_list.push(userInfo);
@@ -741,6 +756,43 @@ export class WsChatGateway {
       on_line_user_list: formatOnlineUserList,
       msg: `来自${address}的[${user_nick}]进入房间了`,
     });
+  }
+
+  /**
+   * @desc 延迟关闭空房间。如果在延迟期间有新用户加入，定时器会被取消。
+   * @param room_id 房间ID
+   * @param room_info 房间信息
+   * @param room_admin_info 房主信息
+   */
+  private scheduleRoomClose(room_id, room_info, room_admin_info) {
+    // 如果已经有一个关闭定时器在运行，先清除
+    if (this.roomCloseTimers[room_id]) {
+      clearTimeout(this.roomCloseTimers[room_id]);
+    }
+
+    const delayMinutes = this.roomCloseDelay / 60000;
+    console.log(`房间 ${room_id} 已无人，将在 ${delayMinutes} 分钟后自动关闭`);
+
+    this.roomCloseTimers[room_id] = setTimeout(() => {
+      // 再次确认房间仍然没人
+      const room = this.room_list_map[room_id];
+      if (room && room.on_line_user_list.length === 0) {
+        clearTimeout(this.timerList[`timer${room_id}`]);
+        delete this.timerList[`timer${room_id}`];
+        delete this.room_list_map[room_id];
+        delete this.roomCloseTimers[room_id];
+        const { room_name } = room_info;
+        const { user_nick: roomAdminNick } = room_admin_info;
+        this.socket.emit('updateRoomlist', {
+          room_list: formatRoomlist(this.room_list_map),
+          msg: `[${roomAdminNick}]的房间 [${room_name}] 因房间人已全部退出被系统关闭了`,
+        });
+        console.log(`房间 ${room_id} [${room_name}] 已自动关闭`);
+      } else {
+        // 房间里又有人了，不关闭
+        delete this.roomCloseTimers[room_id];
+      }
+    }, this.roomCloseDelay);
   }
 
   /**
