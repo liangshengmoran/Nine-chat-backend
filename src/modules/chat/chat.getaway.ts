@@ -839,20 +839,56 @@ export class WsChatGateway {
       throw new Error('房间不存在或未启动');
     }
 
-    // 添加到点歌队列
+    // 获取歌曲详情以填充队列显示信息
+    let music_name = '';
+    let music_singer = '';
+    let music_album = '';
+    let music_cover = '';
+    try {
+      const detail = await getMusicDetailUnified(music_mid, source || 'kugou');
+      if (detail?.music_info) {
+        music_name = detail.music_info.music_name || '';
+        music_singer = detail.music_info.music_singer || '';
+        music_album = detail.music_info.music_album || '';
+        music_cover = detail.music_info.music_cover || '';
+      }
+    } catch (e) {
+      console.error('Bot点歌获取歌曲详情失败:', e.message);
+    }
+
+    // 封面或专辑缺失时，通过播放地址接口补充（该接口有独立的封面数据源）
+    if (!music_cover || !music_album) {
+      try {
+        const srcInfo = await getMusicSrcUnified(music_mid, source || 'kugou');
+        if (!music_cover && srcInfo.cover) {
+          music_cover = srcInfo.cover;
+        }
+        if (!music_album && srcInfo.album) {
+          music_album = srcInfo.album;
+        }
+      } catch (e) {
+        // 补充信息失败不影响点歌流程
+      }
+    }
+
+    // 构建与普通用户一致的队列项结构
     const musicQueueItem = {
       music_mid,
+      music_name,
+      music_singer,
+      music_album,
+      music_cover,
       source: source || 'kugou',
-      chooser_info: botUserInfo,
-      choose_time: new Date(),
+      user_info: botUserInfo,
     };
 
     roomData.music_queue_list.push(musicQueueItem);
 
     // 广播队列更新
     this.socket.to(String(room_id)).emit('chooseMusic', {
+      code: 1,
       music_queue_list: roomData.music_queue_list,
-      msg: `Bot [${botUserInfo.user_nick}] 点了一首歌`,
+      msg: `Bot [${botUserInfo.user_nick}] 点了一首 ${music_name}(${music_singer})`,
     });
   }
 
