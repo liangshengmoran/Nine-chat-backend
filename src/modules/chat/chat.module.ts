@@ -1,5 +1,6 @@
 import { RoomEntity } from './room.entity';
 import { RoomModeratorEntity } from './room-moderator.entity';
+import { RoomMusicAuthEntity } from './room-music-auth.entity';
 import { MusicEntity } from './../music/music.entity';
 import { MessageEntity } from './message.entity';
 import { UserEntity } from './../user/user.entity';
@@ -23,6 +24,7 @@ import { BotUpdateEntity } from '../bot/bot-update.entity';
       RoomModeratorEntity,
       BotEntity,
       BotUpdateEntity,
+      RoomMusicAuthEntity,
     ]),
     AdminModule,
     forwardRef(() => BotModule),

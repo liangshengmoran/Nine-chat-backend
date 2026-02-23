@@ -1,6 +1,7 @@
 import { formatOnlineUser, formatRoomlist } from '../../utils/tools';
 import { RoomEntity } from './room.entity';
 import { RoomModeratorEntity } from './room-moderator.entity';
+import { RoomMusicAuthEntity } from './room-music-auth.entity';
 import { MusicEntity } from '../music/music.entity';
 import { MessageEntity } from './message.entity';
 import { UserEntity } from '../user/user.entity';
@@ -8,7 +9,7 @@ import { BotEntity } from '../bot/bot.entity';
 import { BotUpdateEntity } from '../bot/bot-update.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { getMusicDetailUnified, getMusicSrcUnified } from 'src/utils/spider';
+import { getMusicDetailUnified, getMusicSrcUnified, MusicAuthOverride } from 'src/utils/spider';
 import * as crypto from 'crypto';
 import axios from 'axios';
 import { getTimeSpace } from 'src/utils/tools';
@@ -43,11 +44,24 @@ export class WsChatGateway {
     private readonly BotModel: Repository<BotEntity>,
     @InjectRepository(BotUpdateEntity)
     private readonly BotUpdateModel: Repository<BotUpdateEntity>,
+    @InjectRepository(RoomMusicAuthEntity)
+    private readonly RoomMusicAuthModel: Repository<RoomMusicAuthEntity>,
     private readonly adminService: AdminService,
   ) {}
   @WebSocketServer() private socket: Server;
 
   private clientIdMap: any = {}; //  记录clientId 和userId roomId的映射关系 {  client.id: { user_id, room_id }}
+
+  /** 获取房间音乐授权（优先房间级，回退全局env） */
+  private async getRoomMusicAuth(room_id: number, source: string): Promise<MusicAuthOverride | undefined> {
+    const auth = await this.RoomMusicAuthModel.findOne({
+      where: { room_id, source, status: 1 },
+    });
+    if (auth) {
+      return { token: auth.auth_cookie, userid: auth.auth_userid };
+    }
+    return undefined;
+  }
   private onlineUserInfo: any = {}; // 在线用户信息
   private chooseMusicTimeSpace: any = {}; // 记录每位用户的点歌时间 限制30s点一首
   private room_list_map: any = {}; // 所有的在线房间列表
@@ -490,7 +504,8 @@ export class WsChatGateway {
       /* 记录歌曲来源 */
       music_info.source = source;
       /* 获取歌曲远程地址、时长和封面 - 传递source参数 */
-      const musicSrcResult = await getMusicSrcUnified(mid, source);
+      const roomAuth = await this.getRoomMusicAuth(Number(room_id), source || 'kugou');
+      const musicSrcResult = await getMusicSrcUnified(mid, source, roomAuth);
       const music_src = musicSrcResult.url;
       /* 如果从播放地址接口获取到了时长，使用它覆盖原有的 duration */
       if (musicSrcResult.timeLength && musicSrcResult.timeLength > 0) {
@@ -946,7 +961,8 @@ export class WsChatGateway {
     // 封面或专辑缺失时，通过播放地址接口补充（该接口有独立的封面数据源）
     if (!music_cover || !music_album) {
       try {
-        const srcInfo = await getMusicSrcUnified(music_mid, source || 'kugou');
+        const roomAuth = await this.getRoomMusicAuth(Number(room_id), source || 'kugou');
+        const srcInfo = await getMusicSrcUnified(music_mid, source || 'kugou', roomAuth);
         if (!music_cover && srcInfo.cover) {
           music_cover = srcInfo.cover;
         }

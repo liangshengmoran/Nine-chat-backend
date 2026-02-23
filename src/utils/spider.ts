@@ -11,21 +11,29 @@ const KUGOU_USERID = process.env.KUGOU_USERID || '';
 // 网易云音乐 API 配置
 const NETEASE_API_BASE = process.env.NETEASE_API_BASE || 'https://netease-music-api.qyjm.eu.org';
 
+/** 房间级音乐认证覆盖参数 */
+export interface MusicAuthOverride {
+  token: string; // 酷狗 token / 网易云 cookie
+  userid?: string; // 酷狗 userid
+}
+
 /**
  * @desc 获取酷狗 API 请求头
  * @param needAuth 是否需要验证
  */
-const getKugouHeaders = (needAuth = false) => {
+const getKugouHeaders = (needAuth = false, authOverride?: MusicAuthOverride) => {
   const headers: any = {
     Accept: 'application/json, text/plain, */*',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
     'User-Agent':
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0',
   };
-  if (needAuth && KUGOU_TOKEN && KUGOU_USERID) {
-    headers.authorization = `token=${KUGOU_TOKEN};userid=${KUGOU_USERID}`;
-    // 添加完整的 Cookie 参数
-    headers.cookie = `KUGOU_API_PLATFORM=lite; KUGOU_API_MAC=02:00:00:00:00:00; KUGOU_API_MID=168794559962591586160362213104601160653; KUGOU_API_GUID=0fcc19b7c7b83bcb8699c5b829f11898; KUGOU_API_DEV=AYNHMD02W7; userid=${KUGOU_USERID}; token=${KUGOU_TOKEN}`;
+  // 优先使用房间级覆盖认证，否则使用全局 env 配置
+  const token = authOverride?.token || KUGOU_TOKEN;
+  const userid = authOverride?.userid || KUGOU_USERID;
+  if (needAuth && token && userid) {
+    headers.authorization = `token=${token};userid=${userid}`;
+    headers.cookie = `KUGOU_API_PLATFORM=lite; KUGOU_API_MAC=02:00:00:00:00:00; KUGOU_API_MID=168794559962591586160362213104601160653; KUGOU_API_GUID=0fcc19b7c7b83bcb8699c5b829f11898; KUGOU_API_DEV=AYNHMD02W7; userid=${userid}; token=${token}`;
     headers.origin = 'https://music.lsmr.nl';
     headers.referer = 'https://music.lsmr.nl/';
   }
@@ -299,11 +307,11 @@ export const getMusicDetail = async (mid) => {
  * @param mid 音乐 hash
  * @returns { url: string, timeLength: number, cover: string, album: string } 播放地址、时长(秒)、封面URL和专辑名
  */
-export const getMusicSrc = async (mid) => {
+export const getMusicSrc = async (mid, auth?: MusicAuthOverride) => {
   // 使用 /song/url 接口获取播放地址 (该接口返回 timeLength 和 union_cover)
   const url = `${KUGOU_API_BASE}/song/url?hash=${mid}&quality=high`;
   try {
-    const response = await axios.get(url, { headers: getKugouHeaders(true) });
+    const response = await axios.get(url, { headers: getKugouHeaders(true, auth) });
     if (response.data.status === 1 && response.data.url && response.data.url.length > 0) {
       const playUrl = response.data.url[0];
       const timeLength = response.data.timeLength || 0;
@@ -319,7 +327,7 @@ export const getMusicSrc = async (mid) => {
       if (!albumAudioId) {
         try {
           const privilegeUrl = `${KUGOU_API_BASE}/privilege/lite?hash=${mid}`;
-          const privilegeRes = await axios.get(privilegeUrl, { headers: getKugouHeaders(true) });
+          const privilegeRes = await axios.get(privilegeUrl, { headers: getKugouHeaders(true, auth) });
           if (privilegeRes.data.status === 1 && privilegeRes.data.data?.[0]) {
             const songData = privilegeRes.data.data[0];
             albumAudioId = songData.album_audio_id || songData.info?.album_audio_id;
@@ -335,7 +343,7 @@ export const getMusicSrc = async (mid) => {
       if (albumAudioId && !album) {
         try {
           const relatedUrl = `${KUGOU_API_BASE}/audio/related?album_audio_id=${albumAudioId}`;
-          const relatedRes = await axios.get(relatedUrl, { headers: getKugouHeaders(true) });
+          const relatedRes = await axios.get(relatedUrl, { headers: getKugouHeaders(true, auth) });
           if (relatedRes.data.status === 1 && relatedRes.data.extra?.resp?.base?.album_name) {
             album = relatedRes.data.extra.resp.base.album_name;
           }
@@ -462,10 +470,12 @@ export const searchMusicNetease = async (keyword: string, page = 1, pagesize = 2
  * @desc 获取网易云歌曲播放地址
  * @param id 歌曲ID
  */
-export const getMusicSrcNetease = async (id: string) => {
+export const getMusicSrcNetease = async (id: string, auth?: MusicAuthOverride) => {
   const url = `${NETEASE_API_BASE}/song/url?id=${id}`;
   try {
-    const response = await axios.get(url);
+    const headers: any = {};
+    if (auth?.token) headers.cookie = auth.token;
+    const response = await axios.get(url, { headers });
     if (response.data.code === 200 && response.data.data?.length > 0) {
       const playUrl = response.data.data[0].url;
       if (playUrl) {
@@ -555,13 +565,13 @@ export const searchMusicUnified = async (keyword: string, page = 1, pagesize = 2
  * @desc 统一获取播放地址 - 根据 source 调用不同 API
  * @returns { url: string, timeLength: number, cover: string, album: string } 播放地址、时长(秒)、封面URL和专辑名
  */
-export const getMusicSrcUnified = async (mid: string, source = 'kugou') => {
+export const getMusicSrcUnified = async (mid: string, source = 'kugou', auth?: MusicAuthOverride) => {
   if (source === 'netease') {
-    const url = await getMusicSrcNetease(mid);
+    const url = await getMusicSrcNetease(mid, auth);
     // 网易云只返回 URL，时长、封面和专辑从 getMusicDetail 获取
     return { url, timeLength: 0, cover: '', album: '' };
   }
-  return getMusicSrc(mid);
+  return getMusicSrc(mid, auth);
 };
 
 /**
