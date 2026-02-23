@@ -17,7 +17,26 @@ export class MusicController {
     description: '根据酷狗专辑 ID 批量添加歌曲到曲库，用于初始化歌曲库',
   })
   @ApiBody({ type: addAlbumDto })
-  @ApiResponse({ status: 200, description: '添加成功，返回新增歌曲列表' })
+  @ApiResponse({
+    status: 200,
+    description: '添加成功',
+    schema: {
+      example: {
+        code: 200,
+        data: [
+          {
+            music_mid: 'abc123',
+            music_name: '晴天',
+            music_singer: '周杰伦',
+            music_album: '叶惠美',
+            source: 'kugou',
+          },
+        ],
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 400, description: '专辑ID无效' })
   getAlbumList(@Body() params: addAlbumDto) {
     return this.MusicService.getAlbumList(params);
@@ -80,7 +99,18 @@ export class MusicController {
     description: '将歌曲添加到当前用户的收藏列表。管理员收藏的歌曲会自动加入推荐列表。',
   })
   @ApiBody({ type: collectMusicDto })
-  @ApiResponse({ status: 200, description: '收藏成功' })
+  @ApiResponse({
+    status: 200,
+    description: '收藏成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 400, description: '已收藏过该歌曲' })
   @ApiResponse({ status: 401, description: '未授权，请先登录' })
   collectMusic(@Request() req, @Body() params: collectMusicDto) {
@@ -158,7 +188,18 @@ export class MusicController {
     description: '从用户收藏列表中移除指定歌曲',
   })
   @ApiBody({ type: removeCollectDto })
-  @ApiResponse({ status: 200, description: '取消收藏成功' })
+  @ApiResponse({
+    status: 200,
+    description: '取消收藏成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 400, description: '无权移除此歌曲' })
   @ApiResponse({ status: 401, description: '未授权，请先登录' })
   removeCollect(@Request() req, @Body() params: removeCollectDto) {

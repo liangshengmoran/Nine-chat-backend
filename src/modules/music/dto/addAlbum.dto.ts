@@ -1,24 +1,33 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsOptional } from 'class-validator';
+import { Type } from 'class-transformer';
 
+/**
+ * 专辑导入 DTO — 通过酷狗专辑ID批量添加歌曲到曲库
+ */
 export class addAlbumDto {
   @ApiProperty({
-    example: '355994788',
-    description: '专辑ID 点开酷我的专辑 最后面/的数字',
-    required: true,
+    description: '酷狗专辑ID（可从酷狗音乐网页版 URL 中获取）',
+    example: '1645030',
   })
-  albumId: number;
+  @IsNotEmpty({ message: '专辑ID不能为空' })
+  albumId: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
+    description: '获取的页码',
+    default: 1,
     example: 1,
-    description: '添加的页数 默认为一页 具体看专辑的页数',
-    required: false,
   })
+  @IsOptional()
+  @Type(() => Number)
   page?: number;
 
-  @ApiProperty({
-    example: 20,
-    description: '添加的数量',
-    required: false,
+  @ApiPropertyOptional({
+    description: '每页歌曲数量（酷狗返回的歌曲数）',
+    default: 30,
+    example: 30,
   })
+  @IsOptional()
+  @Type(() => Number)
   size?: number;
 }

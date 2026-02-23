@@ -4,9 +4,13 @@ import { RoomModeratorEntity } from './room-moderator.entity';
 import { MusicEntity } from '../music/music.entity';
 import { MessageEntity } from './message.entity';
 import { UserEntity } from '../user/user.entity';
+import { BotEntity } from '../bot/bot.entity';
+import { BotUpdateEntity } from '../bot/bot-update.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { getMusicDetailUnified, getMusicSrcUnified } from 'src/utils/spider';
+import * as crypto from 'crypto';
+import axios from 'axios';
 import { getTimeSpace } from 'src/utils/tools';
 import { getEffectiveRole, canCutMusic, canRemoveMusic, getMusicCooldown } from 'src/common/constants/roles';
 import { AdminService } from '../admin/admin.service';
@@ -35,6 +39,10 @@ export class WsChatGateway {
     private readonly RoomModel: Repository<RoomEntity>,
     @InjectRepository(RoomModeratorEntity)
     private readonly RoomModeratorModel: Repository<RoomModeratorEntity>,
+    @InjectRepository(BotEntity)
+    private readonly BotModel: Repository<BotEntity>,
+    @InjectRepository(BotUpdateEntity)
+    private readonly BotUpdateModel: Repository<BotUpdateEntity>,
     private readonly adminService: AdminService,
   ) {}
   @WebSocketServer() private socket: Server;
@@ -47,6 +55,10 @@ export class WsChatGateway {
   private roomCloseTimers: any = {}; // 房间延迟关闭定时器
   // 房间空闲后延迟关闭时间（毫秒），通过环境变量 ROOM_CLOSE_DELAY_MINUTES 控制，默认5分钟
   private readonly roomCloseDelay: number = (Number(process.env.ROOM_CLOSE_DELAY_MINUTES) || 5) * 60 * 1000;
+
+  getRoomListMap() {
+    return this.room_list_map;
+  }
 
   /* 连接成功 */
   async handleConnection(client: Socket): Promise<any> {
@@ -163,6 +175,29 @@ export class WsChatGateway {
       });
 
     this.socket.to(room_id).emit('message', { data: result, msg: '有一条新消息' });
+
+    // ========== Bot 命令检测 ==========
+    // 检查消息是否以 / 开头（命令格式），触发对应 Bot 的 Webhook
+    if (message_type === 1) {
+      try {
+        const parsed =
+          typeof result.message_content === 'string' ? JSON.parse(result.message_content) : result.message_content;
+        const text = parsed?.text || (typeof result.message_content === 'string' ? result.message_content : '');
+        if (text.startsWith('/')) {
+          const parts = text.split(' ');
+          const commandName = parts[0].substring(1).toLowerCase(); // 去掉 /
+          const commandArgs = parts.slice(1).join(' ');
+          // 异步处理，不阻塞消息发送
+          this.handleBotCommand(room_id, commandName, commandArgs, result).catch(() => {});
+        }
+      } catch (e) {
+        // 解析失败忽略
+      }
+    }
+
+    // ========== Bot getUpdates 队列写入 ==========
+    // 将消息事件写入没有配置Webhook的Bot的更新队列
+    this.queueMessageForBots(room_id, result).catch(() => {});
   }
 
   /**
@@ -959,5 +994,189 @@ export class WsChatGateway {
    */
   getRoomData(room_id: number): any {
     return this.room_list_map[Number(room_id)] || null;
+  }
+
+  /**
+   * @desc 广播消息编辑事件
+   * @param room_id 房间ID
+   * @param messageData 编辑后的消息数据
+   */
+  broadcastMessageUpdate(room_id: number, messageData: any) {
+    this.socket.to(String(room_id)).emit('messageUpdate', { code: 1, data: messageData });
+  }
+
+  /**
+   * @desc 广播消息撤回事件
+   * @param room_id 房间ID
+   * @param data 撤回的消息信息 { id, user_nick }
+   */
+  broadcastMessageDelete(room_id: number, data: any) {
+    this.socket.to(String(room_id)).emit('messageRecall', { code: 1, data });
+  }
+
+  /**
+   * @desc 广播 Bot 正在输入事件
+   * @param room_id 房间ID
+   * @param botInfo Bot 信息
+   * @param action 动作类型
+   */
+  broadcastBotTyping(room_id: number, botInfo: any, action: string) {
+    this.socket.to(String(room_id)).emit('botAction', { code: 1, data: { ...botInfo, action } });
+  }
+
+  /**
+   * @desc 处理 Bot 命令：用户发送 /xxx 时，查找房间内注册了该命令的 Bot 并推送 Webhook
+   * @param room_id 房间ID
+   * @param command 命令名 (不含 /)
+   * @param args 命令参数
+   * @param messageData 原始消息数据
+   */
+  private async handleBotCommand(room_id: number | string, command: string, args: string, messageData: any) {
+    try {
+      const bots = await this.BotModel.find({ where: { status: 1, approval_status: 'approved' } });
+
+      for (const bot of bots) {
+        if (bot.allowed_rooms) {
+          const allowedRooms = bot.allowed_rooms.split(',').map(Number);
+          if (!allowedRooms.includes(Number(room_id))) continue;
+        }
+
+        if (!bot.commands || !Array.isArray(bot.commands)) continue;
+        const matchedCommand = bot.commands.find((c) => c.command === command);
+        if (!matchedCommand) continue;
+
+        const payload = {
+          event: 'command',
+          data: {
+            command,
+            args,
+            room_id: Number(room_id),
+            message: messageData,
+            bot_command: matchedCommand,
+          },
+          timestamp: Date.now(),
+          bot_id: bot.id,
+        };
+
+        if (bot.webhook_url) {
+          const signature = crypto
+            .createHmac('sha256', bot.webhook_secret || '')
+            .update(JSON.stringify(payload))
+            .digest('hex');
+
+          axios
+            .post(bot.webhook_url, payload, {
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Bot-Signature': signature,
+              },
+              timeout: 5000,
+            })
+            .catch(() => {});
+        } else {
+          // 没有 Webhook 的 Bot 写入更新队列
+          const update = new BotUpdateEntity();
+          update.bot_id = bot.id;
+          update.update_type = 'command';
+          update.payload = payload.data;
+          update.consumed = false;
+          this.BotUpdateModel.save(update).catch(() => {});
+        }
+      }
+    } catch (e) {
+      // 命令处理失败不影响正常消息流
+    }
+  }
+
+  /**
+   * @desc 将消息事件写入没有配置 Webhook 的 Bot 的更新队列 (getUpdates)
+   */
+  private async queueMessageForBots(room_id: number | string, messageData: any) {
+    try {
+      const bots = await this.BotModel.find({ where: { status: 1, approval_status: 'approved' } });
+
+      for (const bot of bots) {
+        if (bot.webhook_url) continue; // 有 webhook 的不写队列
+
+        if (bot.allowed_rooms) {
+          const allowedRooms = bot.allowed_rooms.split(',').map(Number);
+          if (!allowedRooms.includes(Number(room_id))) continue;
+        }
+
+        const update = new BotUpdateEntity();
+        update.bot_id = bot.id;
+        update.update_type = 'message';
+        update.payload = {
+          room_id: Number(room_id),
+          message: messageData,
+        };
+        update.consumed = false;
+        this.BotUpdateModel.save(update).catch(() => {});
+      }
+    } catch (e) {
+      // 队列写入失败不影响正常消息流
+    }
+  }
+
+  /**
+   * @desc 处理 Inline Keyboard 按钮点击回调
+   * 用户点击 Bot 消息中的按钮时，前端发送此事件
+   */
+  @SubscribeMessage('callbackQuery')
+  async handleCallbackQuery(client: Socket, data: { message_id: number; callback_data: string; bot_id: number }) {
+    const { user_id, room_id } = this.clientIdMap[client.id];
+    const { message_id, callback_data, bot_id } = data;
+
+    const callback_query_id = `cb_${room_id}_${Date.now()}`;
+    const userInfo = await this.getUserInfoForClientId(client.id);
+
+    const callbackPayload = {
+      callback_query_id,
+      from: {
+        user_id,
+        user_nick: userInfo.user_nick,
+        user_avatar: userInfo.user_avatar,
+      },
+      message_id,
+      callback_data,
+      room_id,
+    };
+
+    // 查找对应的 Bot
+    const bot = await this.BotModel.findOne({ where: { id: bot_id, status: 1 } });
+    if (!bot) return;
+
+    if (bot.webhook_url) {
+      // 通过 Webhook 推送
+      const payload = {
+        event: 'callback_query',
+        data: callbackPayload,
+        timestamp: Date.now(),
+        bot_id: bot.id,
+      };
+
+      const signature = crypto
+        .createHmac('sha256', bot.webhook_secret || '')
+        .update(JSON.stringify(payload))
+        .digest('hex');
+
+      axios
+        .post(bot.webhook_url, payload, {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Bot-Signature': signature,
+          },
+          timeout: 5000,
+        })
+        .catch(() => {});
+    } else {
+      // 写入更新队列
+      const update = new BotUpdateEntity();
+      update.bot_id = bot.id;
+      update.update_type = 'callback_query';
+      update.payload = callbackPayload;
+      update.consumed = false;
+      this.BotUpdateModel.save(update).catch(() => {});
+    }
   }
 }

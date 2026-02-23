@@ -288,4 +288,30 @@ export class ChatService {
     });
     return !!moderator;
   }
+
+  /**
+   * 获取房间内所有 Bot 的命令列表
+   * @param room_id 房间ID
+   */
+  async getRoomBotCommands(room_id: number): Promise<any[]> {
+    const bots = await this.BotModel.find({
+      where: { status: 1, approval_status: 'approved' },
+      select: ['id', 'bot_name', 'bot_avatar', 'bot_username', 'commands', 'allowed_rooms'],
+    });
+    const result = [];
+    for (const bot of bots) {
+      // 检查 bot 是否有权访问此房间
+      const rooms = bot.allowed_rooms ? String(bot.allowed_rooms).split(',').map(Number) : [];
+      if (rooms.length > 0 && !rooms.includes(room_id)) continue;
+      if (!bot.commands || bot.commands.length === 0) continue;
+      result.push({
+        bot_id: bot.id,
+        bot_name: bot.bot_name,
+        bot_avatar: bot.bot_avatar,
+        bot_username: bot.bot_username,
+        commands: bot.commands,
+      });
+    }
+    return result;
+  }
 }

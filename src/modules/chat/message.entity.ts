@@ -29,4 +29,13 @@ export class MessageEntity extends BaseEntity {
 
   @Column({ comment: '消息状态: 1-正常, -1-已撤回', default: 1 })
   message_status: number;
+
+  @Column({ type: 'simple-json', nullable: true, comment: 'Bot 内联键盘 (inline_keyboard JSON)' })
+  reply_markup: any;
+
+  @Column({ type: 'simple-json', nullable: true, comment: 'Bot @提及的用户ID列表 [1,2,3]' })
+  mentions: number[];
+
+  @Column({ length: 20, nullable: true, comment: '消息解析模式: markdown, html' })
+  parse_mode: string;
 }

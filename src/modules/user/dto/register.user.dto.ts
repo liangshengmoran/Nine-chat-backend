@@ -1,48 +1,54 @@
-import { IsNotEmpty, MinLength, MaxLength, IsEmail, IsOptional, IsEnum } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsString, MaxLength, MinLength, IsEmail, IsOptional } from 'class-validator';
 
 export class UserRegisterDto {
-  @ApiProperty({ example: 'admin', description: '用户名' })
+  @ApiProperty({
+    description: '用户名（登录名，全局唯一）',
+    example: 'testuser',
+    minLength: 2,
+    maxLength: 20,
+  })
   @IsNotEmpty({ message: '用户名不能为空' })
+  @IsString()
+  @MinLength(2, { message: '用户名长度不能小于2' })
+  @MaxLength(20, { message: '用户名长度不能超过20' })
   user_name: string;
 
-  @ApiProperty({ example: '小九', description: '用户昵称' })
+  @ApiProperty({
+    description: '用户昵称（显示名称，可修改）',
+    example: '测试用户',
+    maxLength: 20,
+  })
   @IsNotEmpty({ message: '用户昵称不能为空' })
-  @MaxLength(8, { message: '用户昵称长度最多为8位' })
+  @IsString()
+  @MaxLength(20, { message: '用户昵称长度不能超过20' })
   user_nick: string;
 
-  @ApiProperty({ example: '123456', description: '密码' })
+  @ApiProperty({
+    description: '登录密码，6-20位，注册后以 MD5 加密存储',
+    example: 'password123',
+    minLength: 6,
+    maxLength: 20,
+  })
   @IsNotEmpty({ message: '密码不能为空' })
-  @MinLength(6, { message: '密码长度最低为6位' })
-  @MaxLength(30, { message: '密码长度最多为30位' })
+  @IsString()
+  @MinLength(6, { message: '密码长度不能小于6' })
+  @MaxLength(20, { message: '密码长度不能超过20' })
   user_password: string;
 
   @ApiProperty({
-    example: '每个人都有签名、我希望你也有',
-    description: '个人签名',
+    description: '邮箱地址（用于找回密码等）',
+    example: 'test@example.com',
   })
-  user_sign: string;
-
-  @ApiProperty({ example: '927898639@qq.com', description: '邮箱' })
-  @IsEmail({}, { message: '请填写正确格式的邮箱' })
+  @IsNotEmpty({ message: '邮箱不能为空' })
+  @IsEmail({}, { message: '邮箱格式不正确' })
   user_email: string;
 
-  @ApiProperty({
-    example: '/basic/default-avatar.gif',
-    description: '头像',
-    required: false,
-  })
-  user_avatar: string;
-
-  @ApiProperty({
-    example: 1,
-    description: '账号状态',
-    required: false,
-    enum: [1, 2],
+  @ApiPropertyOptional({
+    description: '用户头像 URL（不填则使用系统默认头像）',
+    example: '/uploads/avatars/user1.png',
   })
   @IsOptional()
-  @IsEnum([1, 2], { message: 'user_status只能是1或者2' })
-  @Type(() => Number)
-  user_status: number;
+  @IsString()
+  user_avatar?: string;
 }

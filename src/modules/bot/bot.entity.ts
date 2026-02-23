@@ -58,6 +58,15 @@ export class BotEntity extends BaseEntity {
   @Column({ default: 0, comment: '总请求次数' })
   total_requests: number;
 
+  // ==================== 命令系统字段 ====================
+
+  @Column({
+    type: 'simple-json',
+    nullable: true,
+    comment: 'Bot注册的命令列表 [{command, description}]',
+  })
+  commands: { command: string; description: string }[];
+
   // ==================== 审批机制字段 ====================
 
   @Column({

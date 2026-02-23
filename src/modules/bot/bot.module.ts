@@ -2,6 +2,8 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BotEntity } from './bot.entity';
 import { BotManagerEntity } from './bot-manager.entity';
+import { BotUpdateEntity } from './bot-update.entity';
+import { BotScheduledMessageEntity } from './bot-scheduled-message.entity';
 import { BotService } from './bot.service';
 import { BotController } from './bot.controller';
 import { MessageEntity } from '../chat/message.entity';
@@ -11,7 +13,14 @@ import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([BotEntity, BotManagerEntity, MessageEntity, RoomEntity]),
+    TypeOrmModule.forFeature([
+      BotEntity,
+      BotManagerEntity,
+      BotUpdateEntity,
+      BotScheduledMessageEntity,
+      MessageEntity,
+      RoomEntity,
+    ]),
     forwardRef(() => ChatModule),
     forwardRef(() => AdminModule),
   ],

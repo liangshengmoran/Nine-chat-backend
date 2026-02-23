@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Query, Param, Request, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
-import { AdminGuard } from 'src/guard/admin.guard';
+import { AdminGuard } from '../../guard/admin.guard';
 import {
   UserQueryDto,
   UpdateUserRoleDto,
@@ -51,7 +51,28 @@ export class AdminController {
 - 总消息数、今日消息数
 - 在线用户数`,
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          totalUsers: 100,
+          todayNewUsers: 5,
+          totalRooms: 10,
+          activeRooms: 3,
+          totalMusic: 200,
+          totalCollects: 500,
+          totalMessages: 10000,
+          todayMessages: 150,
+          onlineUsers: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 403, description: '无权限访问' })
   getDashboard() {
     return this.AdminService.getDashboard();
@@ -71,7 +92,33 @@ export class AdminController {
 - \`keyword\`: 搜索关键词（匹配用户名/昵称）
 - \`role\`: 筛选角色（super/admin/user）`,
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              user_id: 1,
+              user_name: 'admin',
+              user_nick: '管理员',
+              user_avatar: '/avatars/1.png',
+              user_role: 'admin',
+              user_status: 1,
+              createdAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+          total: 100,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getUserList(@Query() params: UserQueryDto) {
     return this.AdminService.getUserList(params);
   }
@@ -88,8 +135,32 @@ export class AdminController {
 - 房间信息：拥有的房间、担任房管的房间
 - 时间信息：注册时间、最后登录时间`,
   })
-  @ApiParam({ name: 'id', description: '用户ID' })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiParam({ name: 'id', description: '用户ID', example: 1 })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          user_id: 1,
+          user_name: 'testuser',
+          user_nick: '测试用户',
+          user_avatar: '/avatars/1.png',
+          user_email: 'test@example.com',
+          user_role: 'user',
+          user_status: 1,
+          collectCount: 10,
+          messageCount: 500,
+          ownedRoom: { room_id: 1001, room_name: '我的房间' },
+          moderatorRooms: [],
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: '用户不存在' })
   getUserDetail(@Param('id') id: number) {
     return this.AdminService.getUserDetail(Number(id));
@@ -117,10 +188,20 @@ export class AdminController {
 
 **特殊说明：**
 - 房主转让房间后，原房主会自动降级为 user（超管/管理员除外）
-- 设置 owner/moderator/remove_moderator 时必须提供有效的 room_id
-`,
+- 设置 owner/moderator/remove_moderator 时必须提供有效的 room_id`,
   })
-  @ApiResponse({ status: 200, description: '操作成功' })
+  @ApiResponse({
+    status: 200,
+    description: '操作成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true, message: '角色更新成功' },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 400, description: '参数错误（如房间角色缺少 room_id）' })
   @ApiResponse({ status: 403, description: '无权限操作' })
   @ApiResponse({ status: 404, description: '用户不存在' })
@@ -143,7 +224,18 @@ export class AdminController {
 - \`user_id\`: 目标用户ID
 - \`reason\`: 封禁原因（可选）`,
   })
-  @ApiResponse({ status: 200, description: '操作成功' })
+  @ApiResponse({
+    status: 200,
+    description: '操作成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true, user_status: 0, message: '用户已被封禁' },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 403, description: '不能封禁管理员' })
   @ApiResponse({ status: 404, description: '用户不存在' })
   toggleUserBan(@Body() params: BanUserDto) {
@@ -168,7 +260,34 @@ export class AdminController {
 - 房主信息、在线人数
 - 创建时间`,
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              room_id: 888,
+              room_name: '官方聊天室',
+              room_notice: '欢迎',
+              room_need_password: 0,
+              room_user_id: 1,
+              owner_nick: '管理员',
+              online_count: 5,
+              createdAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+          total: 10,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getRoomList(@Query() params: RoomQueryDto) {
     return this.AdminService.getRoomList(params);
   }
@@ -185,8 +304,28 @@ export class AdminController {
 - 房管列表：所有房管的信息
 - 统计数据：在线人数、消息总数`,
   })
-  @ApiParam({ name: 'id', description: '房间ID' })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiParam({ name: 'id', description: '房间ID', example: 888 })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          room_id: 888,
+          room_name: '官方聊天室',
+          room_notice: '欢迎来到官方聊天室',
+          room_need_password: 0,
+          owner: { user_id: 1, user_nick: '管理员', user_avatar: '/avatars/1.png' },
+          moderators: [{ user_id: 2, user_nick: '房管小王' }],
+          online_count: 5,
+          message_count: 10000,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: '房间不存在' })
   getRoomDetail(@Param('id') id: number) {
     return this.AdminService.getRoomDetail(Number(id));
@@ -211,7 +350,34 @@ export class AdminController {
 - 音源、收藏数
 - 添加时间`,
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              music_mid: 'abc123',
+              music_name: '晴天',
+              music_singer: '周杰伦',
+              music_cover: 'https://...',
+              source: 'kugou',
+              collect_count: 15,
+              createdAt: '2026-01-15T00:00:00.000Z',
+            },
+          ],
+          total: 200,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getMusicList(@Query() params: MusicQueryDto) {
     return this.AdminService.getMusicList(params);
   }
@@ -227,7 +393,18 @@ export class AdminController {
 - 正在播放的歌曲不会立即中断
 - 操作不可恢复`,
   })
-  @ApiResponse({ status: 200, description: '删除成功' })
+  @ApiResponse({
+    status: 200,
+    description: '删除成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: '歌曲不存在' })
   deleteMusic(@Body() params: DeleteMusicDto) {
     return this.AdminService.deleteMusic(params);
@@ -243,7 +420,21 @@ export class AdminController {
 - 收藏数 Top 10 歌曲排行
 - 每首歌的收藏数量`,
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: [
+          { music_name: '晴天', music_singer: '周杰伦', collect_count: 50 },
+          { music_name: '稻香', music_singer: '周杰伦', collect_count: 42 },
+        ],
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getCollectStats() {
     return this.AdminService.getCollectStats();
   }
@@ -268,7 +459,34 @@ export class AdminController {
 - 发送者信息、房间信息
 - 发送时间`,
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 123,
+              message_content: 'Hello!',
+              message_type: 'text',
+              message_status: 1,
+              user_id: 1,
+              user_nick: '测试用户',
+              room_id: 888,
+              createdAt: '2026-02-06T10:00:00.000Z',
+            },
+          ],
+          total: 10000,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getMessageList(@Query() params: MessageQueryDto) {
     return this.AdminService.getMessageList(params);
   }
@@ -284,7 +502,18 @@ export class AdminController {
 - 前端不再显示该消息
 - 操作不可恢复`,
   })
-  @ApiResponse({ status: 200, description: '删除成功' })
+  @ApiResponse({
+    status: 200,
+    description: '删除成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: '消息不存在' })
   deleteMessage(@Body() params: DeleteMessageDto) {
     return this.AdminService.deleteMessage(params);
@@ -303,7 +532,18 @@ export class AdminController {
 - \`room_notice\`: 房间公告
 - \`room_need_password\`: 是否需要密码（1-是, 0-否）`,
   })
-  @ApiResponse({ status: 200, description: '更新成功' })
+  @ApiResponse({
+    status: 200,
+    description: '更新成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: '房间不存在' })
   updateRoom(@Body() params: UpdateRoomDto) {
     return this.AdminService.updateRoom(params);
@@ -321,8 +561,19 @@ export class AdminController {
 - 房主的 user_room_id 会被清空
 - 操作不可恢复`,
   })
-  @ApiParam({ name: 'id', description: '房间ID' })
-  @ApiResponse({ status: 200, description: '删除成功' })
+  @ApiParam({ name: 'id', description: '房间ID', example: 1001 })
+  @ApiResponse({
+    status: 200,
+    description: '删除成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 403, description: '不能删除官方房间' })
   @ApiResponse({ status: 404, description: '房间不存在' })
   deleteRoom(@Param('id') id: number) {
@@ -343,7 +594,25 @@ export class AdminController {
 - \`type\`: 公告类型（0-普通, 1-重要, 2-紧急，默认0）
 - \`expire_at\`: 过期时间（可选）`,
   })
-  @ApiResponse({ status: 200, description: '创建成功' })
+  @ApiResponse({
+    status: 200,
+    description: '创建成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          id: 1,
+          title: '系统维护通知',
+          content: '今晚22:00进行系统维护...',
+          type: 1,
+          status: 1,
+          createdAt: '2026-02-13T10:00:00.000Z',
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   createAnnouncement(@Request() req, @Body() params: CreateAnnouncementDto) {
     return this.AdminService.createAnnouncement(params, req.payload);
   }
@@ -361,7 +630,18 @@ export class AdminController {
 - \`type\`: 公告类型（0-普通, 1-重要, 2-紧急）
 - \`status\`: 状态（1=显示, 0=隐藏）`,
   })
-  @ApiResponse({ status: 200, description: '更新成功' })
+  @ApiResponse({
+    status: 200,
+    description: '更新成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: '公告不存在' })
   updateAnnouncement(@Request() req, @Body() params: UpdateAnnouncementDto) {
     return this.AdminService.updateAnnouncement(params, req.payload);
@@ -371,10 +651,21 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '删除公告',
-    description: '管理员删除公告',
+    description: '管理员删除系统公告，操作不可恢复',
   })
-  @ApiParam({ name: 'id', description: '公告ID' })
-  @ApiResponse({ status: 200, description: '删除成功' })
+  @ApiParam({ name: 'id', description: '公告ID', example: 1 })
+  @ApiResponse({
+    status: 200,
+    description: '删除成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: '公告不存在' })
   deleteAnnouncement(@Request() req, @Param('id') id: number) {
     return this.AdminService.deleteAnnouncement(Number(id), req.payload);
@@ -384,9 +675,36 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取公告列表',
-    description: '管理员获取所有公告列表（分页）',
+    description: '管理员获取所有公告列表（分页），包含已过期和已隐藏的公告',
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              title: '系统维护通知',
+              content: '今晚22:00进行系统维护...',
+              type: 1,
+              status: 1,
+              creator_nick: '管理员',
+              expire_at: '2026-03-01T00:00:00.000Z',
+              createdAt: '2026-02-13T10:00:00.000Z',
+            },
+          ],
+          total: 5,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getAnnouncementList(@Query() params: AnnouncementQueryDto) {
     return this.AdminService.getAnnouncementList(params);
   }
@@ -401,7 +719,26 @@ export class AdminController {
 - 只返回未过期且启用的公告
 - 按优先级排序（高优先级在前）`,
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: [
+          {
+            id: 1,
+            title: '系统维护通知',
+            content: '今晚22:00进行系统维护...',
+            type: 1,
+            createdAt: '2026-02-13T10:00:00.000Z',
+          },
+        ],
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getActiveAnnouncements() {
     return this.AdminService.getActiveAnnouncements();
   }
@@ -425,7 +762,34 @@ export class AdminController {
 - 操作者信息、操作类型、操作详情
 - 目标对象、操作时间`,
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              operator_id: 1,
+              operator_nick: '管理员',
+              action_type: 'ban_user',
+              target_type: 'user',
+              target_id: 5,
+              detail: '封禁用户: 违规发言',
+              createdAt: '2026-02-13T10:00:00.000Z',
+            },
+          ],
+          total: 200,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getOperationLogs(@Query() params: OperationLogQueryDto) {
     return this.AdminService.getOperationLogs(params);
   }
@@ -446,7 +810,18 @@ export class AdminController {
 - 不能封禁超管或管理员
 - 批量操作中遇到管理员会跳过`,
   })
-  @ApiResponse({ status: 200, description: '封禁成功' })
+  @ApiResponse({
+    status: 200,
+    description: '封禁成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true, banned_count: 3, skipped_count: 1 },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   @ApiResponse({ status: 403, description: '不能封禁管理员' })
   batchBanUsers(@Request() req, @Body() params: BatchBanUsersDto) {
     return this.AdminService.batchBanUsers(params, req.payload);
@@ -465,7 +840,18 @@ export class AdminController {
 - 消息状态变为 -2（管理员删除）
 - 返回成功删除的数量`,
   })
-  @ApiResponse({ status: 200, description: '删除成功' })
+  @ApiResponse({
+    status: 200,
+    description: '删除成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true, deleted_count: 5 },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   batchDeleteMessages(@Request() req, @Body() params: BatchDeleteMessagesDto) {
     return this.AdminService.batchDeleteMessages(params, req.payload);
   }
@@ -484,7 +870,23 @@ export class AdminController {
 - 当前在线用户数
 - 各房间在线人数`,
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          todayNewUsers: 5,
+          todayMessages: 150,
+          onlineUsers: 20,
+          roomStats: [{ room_id: 888, room_name: '官方聊天室', online: 15 }],
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getOnlineStats() {
     return this.AdminService.getOnlineStats();
   }
@@ -505,7 +907,18 @@ export class AdminController {
 **功能说明：**
 - 用户发送包含敏感词的消息时会触发过滤`,
   })
-  @ApiResponse({ status: 200, description: '添加成功' })
+  @ApiResponse({
+    status: 200,
+    description: '添加成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { id: 1, word: '违规词', type: 0, replacement: '***' },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   addSensitiveWord(@Body() params: CreateSensitiveWordDto) {
     return this.AdminService.addSensitiveWord(params);
   }
@@ -514,10 +927,21 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '删除敏感词',
-    description: '删除敏感词',
+    description: '从敏感词库中删除指定敏感词',
   })
-  @ApiParam({ name: 'id', description: '敏感词ID' })
-  @ApiResponse({ status: 200, description: '删除成功' })
+  @ApiParam({ name: 'id', description: '敏感词ID', example: 1 })
+  @ApiResponse({
+    status: 200,
+    description: '删除成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   deleteSensitiveWord(@Param('id') id: number) {
     return this.AdminService.deleteSensitiveWord(Number(id));
   }
@@ -526,9 +950,25 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取敏感词列表',
-    description: '分页获取敏感词列表',
+    description: '分页获取敏感词列表，包含敏感词内容、类型和替换文本',
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [{ id: 1, word: '违规词', type: 0, replacement: '***', createdAt: '2026-02-01T00:00:00.000Z' }],
+          total: 20,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getSensitiveWordList(@Query() params: SensitiveWordQueryDto) {
     return this.AdminService.getSensitiveWordList(params);
   }
@@ -547,7 +987,18 @@ export class AdminController {
 - \`type\`: 类型（0-建议, 1-Bug反馈, 2-举报, 3-其他，可选）
 - \`images\`: 附件图片URL（可选）`,
   })
-  @ApiResponse({ status: 200, description: '提交成功' })
+  @ApiResponse({
+    status: 200,
+    description: '提交成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { id: 1, title: '功能建议', status: 0 },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   createFeedback(@Request() req, @Body() params: CreateFeedbackDto) {
     return this.AdminService.createFeedback(params, req.payload);
   }
@@ -556,9 +1007,35 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取反馈列表',
-    description: '管理员获取所有反馈列表',
+    description: '管理员获取所有反馈列表，支持按状态筛选和分页',
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              title: '功能建议',
+              content: '希望添加暗色模式',
+              type: 0,
+              status: 0,
+              user_nick: '测试用户',
+              createdAt: '2026-02-10T00:00:00.000Z',
+            },
+          ],
+          total: 10,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getFeedbackList(@Query() params: FeedbackQueryDto) {
     return this.AdminService.getFeedbackList(params);
   }
@@ -574,7 +1051,19 @@ export class AdminController {
 - \`status\`: 处理状态（0-待处理, 1-处理中, 2-已解决, 3-已忽略，必填）
 - \`reply\`: 管理员回复（可选）`,
   })
-  @ApiResponse({ status: 200, description: '处理成功' })
+  @ApiResponse({
+    status: 200,
+    description: '处理成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: '反馈不存在' })
   replyFeedback(@Request() req, @Body() params: ReplyFeedbackDto) {
     return this.AdminService.replyFeedback(params, req.payload);
   }
@@ -583,9 +1072,35 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取我的反馈',
-    description: '用户获取自己提交的反馈列表',
+    description: '用户获取自己提交的反馈列表及处理状态',
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              title: '功能建议',
+              content: '希望添加暗色模式',
+              type: 0,
+              status: 2,
+              reply: '已在开发计划中',
+              createdAt: '2026-02-10T00:00:00.000Z',
+            },
+          ],
+          total: 3,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getMyFeedbackList(@Request() req, @Query() params: FeedbackQueryDto) {
     return this.AdminService.getMyFeedbackList(params, req.payload);
   }
@@ -606,7 +1121,26 @@ export class AdminController {
 **返回内容：**
 - 生成的邀请码信息`,
   })
-  @ApiResponse({ status: 200, description: '生成成功' })
+  @ApiResponse({
+    status: 200,
+    description: '生成成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          id: 1,
+          invite_code: 'ABC12345',
+          max_uses: 10,
+          used_count: 0,
+          expire_at: '2026-03-01T00:00:00.000Z',
+          remark: '活动专用',
+          createdAt: '2026-02-13T10:00:00.000Z',
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   createInviteCode(@Request() req, @Body() params: CreateInviteCodeDto) {
     return this.AdminService.createInviteCode(params, req.payload);
   }
@@ -615,9 +1149,37 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取邀请码列表',
-    description: '分页获取邀请码列表',
+    description: '分页获取邀请码列表，包含使用情况、过期时间等',
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              invite_code: 'ABC12345',
+              max_uses: 10,
+              used_count: 3,
+              status: 1,
+              remark: '活动专用',
+              creator_nick: '管理员',
+              expire_at: '2026-03-01T00:00:00.000Z',
+              createdAt: '2026-02-13T10:00:00.000Z',
+            },
+          ],
+          total: 5,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getInviteCodeList(@Query() params: InviteCodeQueryDto) {
     return this.AdminService.getInviteCodeList(params);
   }
@@ -632,8 +1194,19 @@ export class AdminController {
 - 禁用后该邀请码不能再被使用
 - 已被使用过的记录不受影响`,
   })
-  @ApiParam({ name: 'id', description: '邀请码ID' })
-  @ApiResponse({ status: 200, description: '禁用成功' })
+  @ApiParam({ name: 'id', description: '邀请码ID', example: 1 })
+  @ApiResponse({
+    status: 200,
+    description: '禁用成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   disableInviteCode(@Param('id') id: number) {
     return this.AdminService.disableInviteCode(Number(id));
   }
@@ -654,7 +1227,18 @@ export class AdminController {
 **功能说明：**
 - 被封禁的IP无法访问系统`,
   })
-  @ApiResponse({ status: 200, description: '添加成功' })
+  @ApiResponse({
+    status: 200,
+    description: '添加成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { id: 1, ip: '192.168.1.100', reason: '恶意攻击' },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   addIpBlacklist(@Request() req, @Body() params: AddIpBlacklistDto) {
     return this.AdminService.addIpBlacklist(params, req.payload);
   }
@@ -663,10 +1247,21 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '从黑名单移除IP',
-    description: '解除IP封禁',
+    description: '解除IP封禁，立即生效',
   })
-  @ApiParam({ name: 'id', description: '黑名单记录ID' })
-  @ApiResponse({ status: 200, description: '移除成功' })
+  @ApiParam({ name: 'id', description: '黑名单记录ID', example: 1 })
+  @ApiResponse({
+    status: 200,
+    description: '移除成功',
+    schema: {
+      example: {
+        code: 200,
+        data: { success: true },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   removeIpBlacklist(@Param('id') id: number) {
     return this.AdminService.removeIpBlacklist(Number(id));
   }
@@ -675,9 +1270,34 @@ export class AdminController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: '获取IP黑名单',
-    description: '分页获取IP黑名单列表',
+    description: '分页获取IP黑名单列表，包含IP地址、封禁原因、过期时间',
   })
-  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              ip: '192.168.1.100',
+              reason: '恶意攻击',
+              operator_nick: '管理员',
+              expire_at: null,
+              createdAt: '2026-02-13T10:00:00.000Z',
+            },
+          ],
+          total: 3,
+          page: 1,
+          pagesize: 20,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   getIpBlacklistList(@Query() params: IpBlacklistQueryDto) {
     return this.AdminService.getIpBlacklistList(params);
   }
@@ -698,7 +1318,22 @@ export class AdminController {
 **返回内容：**
 - 导出的数据内容`,
   })
-  @ApiResponse({ status: 200, description: '导出成功' })
+  @ApiResponse({
+    status: 200,
+    description: '导出成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          type: 'users',
+          count: 100,
+          records: ['...（数据内容）'],
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   exportData(@Body() params: ExportDataDto) {
     return this.AdminService.exportData(params);
   }
@@ -720,7 +1355,23 @@ export class AdminController {
 **返回内容：**
 - 各类型清理的记录数`,
   })
-  @ApiResponse({ status: 200, description: '清理完成' })
+  @ApiResponse({
+    status: 200,
+    description: '清理完成',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          announcements: 2,
+          inviteCodes: 5,
+          ipBlacklist: 1,
+          operationLogs: 100,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
   cleanupExpiredData() {
     return this.AdminService.cleanupExpiredData();
   }

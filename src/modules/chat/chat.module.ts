@@ -11,10 +11,19 @@ import { ChatService } from './chat.service';
 import { AdminModule } from '../admin/admin.module';
 import { BotModule } from '../bot/bot.module';
 import { BotEntity } from '../bot/bot.entity';
+import { BotUpdateEntity } from '../bot/bot-update.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity, MessageEntity, MusicEntity, RoomEntity, RoomModeratorEntity, BotEntity]),
+    TypeOrmModule.forFeature([
+      UserEntity,
+      MessageEntity,
+      MusicEntity,
+      RoomEntity,
+      RoomModeratorEntity,
+      BotEntity,
+      BotUpdateEntity,
+    ]),
     AdminModule,
     forwardRef(() => BotModule),
   ],

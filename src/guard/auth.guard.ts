@@ -12,8 +12,15 @@ export class AuthGuard implements CanActivate {
       return true;
     }
 
+    // Bot Token 认证的请求跳过 JWT 验证，交给 BotGuard 处理
+    const xBotToken = headers['x-bot-token'] || request.headers['x-bot-token'];
+    const authHeader = headers.authorization || request.headers.authorization;
+    if (xBotToken || (authHeader && authHeader.startsWith('Bot '))) {
+      return true;
+    }
+
     const isGet = route.methods.get;
-    let token = headers.authorization || request.headers.authorization;
+    let token = authHeader;
 
     // 支持 Bearer Token 格式
     if (token && token.startsWith('Bearer ')) {

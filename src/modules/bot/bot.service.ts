@@ -1,13 +1,30 @@
-import { Injectable, HttpException, HttpStatus, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Inject, forwardRef, Logger } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import axios from 'axios';
 import { BotEntity } from './bot.entity';
 import { BotManagerEntity } from './bot-manager.entity';
+import { BotUpdateEntity } from './bot-update.entity';
+import { BotScheduledMessageEntity } from './bot-scheduled-message.entity';
 import { MessageEntity } from '../chat/message.entity';
 import { RoomEntity } from '../chat/room.entity';
-import { CreateBotDto, UpdateBotDto, BotSendMessageDto, BotChooseMusicDto, BotGetMessagesDto } from './dto/bot.dto';
+import {
+  CreateBotDto,
+  UpdateBotDto,
+  BotSendMessageDto,
+  BotChooseMusicDto,
+  BotGetMessagesDto,
+  BotEditMessageDto,
+  BotDeleteMessageDto,
+  BotChatActionDto,
+  BotGetUpdatesDto,
+  BotAnswerCallbackDto,
+  BotPinMessageDto,
+  BotScheduleMessageDto,
+  BotSendDocumentDto,
+} from './dto/bot.dto';
 import { WsChatGateway } from '../chat/chat.getaway';
 import { AdminService } from '../admin/admin.service';
 
@@ -28,6 +45,10 @@ export class BotService {
     private readonly MessageModel: Repository<MessageEntity>,
     @InjectRepository(RoomEntity)
     private readonly RoomModel: Repository<RoomEntity>,
+    @InjectRepository(BotUpdateEntity)
+    private readonly BotUpdateModel: Repository<BotUpdateEntity>,
+    @InjectRepository(BotScheduledMessageEntity)
+    private readonly BotScheduledMessageModel: Repository<BotScheduledMessageEntity>,
     @Inject(forwardRef(() => WsChatGateway))
     private readonly chatGateway: WsChatGateway,
     @Inject(forwardRef(() => AdminService))
@@ -199,7 +220,7 @@ export class BotService {
    * Bot 发送消息
    */
   async sendMessage(bot: BotEntity, params: BotSendMessageDto): Promise<any> {
-    const { room_id, message_type, message_content } = params;
+    const { room_id, message_type, message_content, reply_to_message_id } = params;
 
     // 检查房间访问权限
     if (!this.checkRoomAccess(bot, room_id)) {
@@ -230,13 +251,41 @@ export class BotService {
     message.message_content = typeof finalContent === 'string' ? finalContent : JSON.stringify(finalContent);
     message.message_status = 1;
 
+    // Bot 扩展字段持久化
+    if (params.reply_markup) {
+      message.reply_markup = params.reply_markup;
+    }
+    if (params.mentions && params.mentions.length > 0) {
+      message.mentions = params.mentions;
+    }
+    if (params.parse_mode) {
+      message.parse_mode = params.parse_mode;
+    }
+
+    // 处理回复消息
+    let quoteInfo = null;
+    if (reply_to_message_id) {
+      const quotedMessage = await this.MessageModel.findOne({ where: { id: reply_to_message_id } });
+      if (quotedMessage) {
+        message.quote_message_id = reply_to_message_id;
+        message.quote_user_id = quotedMessage.user_id;
+        quoteInfo = {
+          quote_message_id: reply_to_message_id,
+          quote_user_id: quotedMessage.user_id,
+          quote_message_content: quotedMessage.message_content,
+          quote_message_type: quotedMessage.message_type,
+          quote_message_status: quotedMessage.message_status,
+        };
+      }
+    }
+
     const savedMessage = await this.MessageModel.save(message);
 
     // 构造Bot用户信息
     const botUserInfo = {
       id: -bot.id,
       user_nick: bot.bot_name,
-      user_username: bot.bot_username, // @username 格式
+      user_username: bot.bot_username,
       user_avatar: bot.bot_avatar || '/images/default-bot-avatar.png',
       user_role: 'bot',
       is_bot: true,
@@ -244,7 +293,7 @@ export class BotService {
     };
 
     // 广播消息到房间
-    const messageData = {
+    const messageData: any = {
       id: savedMessage.id,
       user_id: -bot.id,
       room_id,
@@ -254,10 +303,492 @@ export class BotService {
       user_info: botUserInfo,
       createdAt: savedMessage.createdAt,
     };
+    if (quoteInfo) {
+      messageData.quote_info = quoteInfo;
+    }
+    if (params.reply_markup) {
+      messageData.reply_markup = params.reply_markup;
+    }
+    if (params.mentions && params.mentions.length > 0) {
+      messageData.mentions = params.mentions;
+    }
+    if (params.parse_mode) {
+      messageData.parse_mode = params.parse_mode;
+    }
 
     this.chatGateway.broadcastBotMessage(room_id, messageData);
 
+    // 向没有 webhook 的 Bot 队列写入事件 (用于 getUpdates)
+    // 此处不写入, 因为 sendMessage 是 Bot 自己发的
+
     return { message_id: savedMessage.id, success: true };
+  }
+
+  /**
+   * Bot 编辑消息
+   */
+  async editMessage(bot: BotEntity, params: BotEditMessageDto): Promise<any> {
+    const { message_id, message_content } = params;
+
+    const message = await this.MessageModel.findOne({ where: { id: message_id } });
+    if (!message) {
+      throw new HttpException('消息不存在', HttpStatus.NOT_FOUND);
+    }
+
+    // 校验: Bot 只能编辑自己发的消息
+    if (message.user_id !== -bot.id) {
+      throw new HttpException('Bot只能编辑自己发送的消息', HttpStatus.FORBIDDEN);
+    }
+
+    // 更新消息内容
+    const newContent = typeof message_content === 'string' ? message_content : JSON.stringify(message_content);
+    await this.MessageModel.update(message_id, { message_content: newContent });
+
+    // 广播消息编辑事件
+    this.chatGateway.broadcastMessageUpdate(message.room_id, {
+      id: message_id,
+      message_content: message_content,
+      edited: true,
+      edited_at: new Date(),
+    });
+
+    return { success: true, message_id };
+  }
+
+  /**
+   * Bot 撤回/删除消息
+   */
+  async deleteMessage(bot: BotEntity, params: BotDeleteMessageDto): Promise<any> {
+    const { message_id } = params;
+
+    const message = await this.MessageModel.findOne({ where: { id: message_id } });
+    if (!message) {
+      throw new HttpException('消息不存在', HttpStatus.NOT_FOUND);
+    }
+
+    // 校验: Bot 只能撤回自己发的消息
+    if (message.user_id !== -bot.id) {
+      throw new HttpException('Bot只能撤回自己发送的消息', HttpStatus.FORBIDDEN);
+    }
+
+    // 设为撤回状态
+    await this.MessageModel.update(message_id, { message_status: -1 });
+
+    // 广播消息撤回事件
+    this.chatGateway.broadcastMessageDelete(message.room_id, {
+      id: message_id,
+      user_nick: bot.bot_name,
+    });
+
+    return { success: true, message_id };
+  }
+
+  /**
+   * Bot 发送聊天动作 (如: 正在输入)
+   */
+  async sendChatAction(bot: BotEntity, params: BotChatActionDto): Promise<any> {
+    const { room_id, action } = params;
+
+    if (!this.checkRoomAccess(bot, room_id)) {
+      throw new HttpException('Bot没有权限访问此房间', HttpStatus.FORBIDDEN);
+    }
+
+    const botInfo = {
+      id: -bot.id,
+      user_nick: bot.bot_name,
+      user_avatar: bot.bot_avatar || '/images/default-bot-avatar.png',
+      is_bot: true,
+    };
+
+    this.chatGateway.broadcastBotTyping(room_id, botInfo, action);
+
+    return { success: true };
+  }
+
+  /**
+   * 注册 Bot 命令
+   */
+  async registerCommands(
+    botId: number,
+    ownerId: number,
+    commands: { command: string; description: string }[],
+  ): Promise<any> {
+    const bot = await this.BotModel.findOne({ where: { id: botId, owner_id: ownerId } });
+    if (!bot) {
+      throw new HttpException('Bot不存在或无权限', HttpStatus.NOT_FOUND);
+    }
+
+    // 校验命令格式: 只允许小写字母、数字、下划线
+    for (const cmd of commands) {
+      if (!/^[a-z0-9_]+$/.test(cmd.command)) {
+        throw new HttpException(
+          `命令 "${cmd.command}" 格式错误: 只能包含小写字母、数字、下划线`,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      if (cmd.command.length > 32) {
+        throw new HttpException(`命令 "${cmd.command}" 过长: 最多32个字符`, HttpStatus.BAD_REQUEST);
+      }
+    }
+
+    bot.commands = commands;
+    await this.BotModel.save(bot);
+
+    return { success: true, commands };
+  }
+
+  /**
+   * 获取 Bot 命令列表
+   */
+  async getCommands(botId: number): Promise<any> {
+    const bot = await this.BotModel.findOne({ where: { id: botId } });
+    if (!bot) {
+      throw new HttpException('Bot不存在', HttpStatus.NOT_FOUND);
+    }
+    return bot.commands || [];
+  }
+
+  // ==================== Phase 2: getUpdates / Inline Keyboard / Pin ====================
+
+  /**
+   * 写入 Bot 更新队列 (供 getUpdates 消费)
+   * 仅对 没有配置 Webhook 的 Bot 写入
+   */
+  async queueUpdate(botId: number, updateType: string, payload: any): Promise<void> {
+    const bot = await this.BotModel.findOne({ where: { id: botId } });
+    if (!bot || bot.webhook_url) return; // 有 Webhook 就不写队列
+
+    const update = new BotUpdateEntity();
+    update.bot_id = botId;
+    update.update_type = updateType;
+    update.payload = payload;
+    update.consumed = false;
+    await this.BotUpdateModel.save(update);
+  }
+
+  /**
+   * Bot getUpdates 长轮询
+   */
+  async getUpdates(bot: BotEntity, params: BotGetUpdatesDto): Promise<any> {
+    const { offset = 0, limit = 20, timeout = 0 } = params;
+
+    // 如果配置了 Webhook, 不允许使用 getUpdates
+    if (bot.webhook_url) {
+      throw new HttpException('已配置Webhook，不能同时使用getUpdates。请先移除Webhook配置', HttpStatus.CONFLICT);
+    }
+
+    const fetchUpdates = async () => {
+      const qb = this.BotUpdateModel.createQueryBuilder('u')
+        .where('u.bot_id = :botId', { botId: bot.id })
+        .andWhere('u.consumed = false');
+      if (offset > 0) {
+        qb.andWhere('u.id > :offset', { offset });
+      }
+      qb.orderBy('u.id', 'ASC').take(limit);
+      return qb.getMany();
+    };
+
+    let updates = await fetchUpdates();
+
+    // 长轮询: 如果没有更新且 timeout > 0, 等待
+    if (updates.length === 0 && timeout > 0) {
+      const pollInterval = 1000; // 1秒轮询一次
+      const endTime = Date.now() + timeout * 1000;
+      while (Date.now() < endTime) {
+        await new Promise((r) => setTimeout(r, pollInterval));
+        updates = await fetchUpdates();
+        if (updates.length > 0) break;
+      }
+    }
+
+    // 标记为已消费
+    if (updates.length > 0) {
+      const ids = updates.map((u) => u.id);
+      await this.BotUpdateModel.update(ids, { consumed: true });
+    }
+
+    return {
+      ok: true,
+      result: updates.map((u) => ({
+        update_id: u.id,
+        update_type: u.update_type,
+        ...u.payload,
+        created_at: u.createdAt,
+      })),
+    };
+  }
+
+  /**
+   * 回应 Callback Query (用户点击 Inline Keyboard 按钮后)
+   */
+  async answerCallbackQuery(bot: BotEntity, params: BotAnswerCallbackDto): Promise<any> {
+    const { callback_query_id, text, show_alert } = params;
+
+    // 广播 callback 回应给前端
+    // callback_query_id 格式: cb_<room_id>_<timestamp>
+    const parts = callback_query_id.split('_');
+    if (parts.length >= 3) {
+      const room_id = Number(parts[1]);
+      this.chatGateway.broadcastBotMessage(room_id, {
+        type: 'callback_answer',
+        callback_query_id,
+        text: text || '',
+        show_alert: show_alert || false,
+        bot_id: bot.id,
+        bot_name: bot.bot_name,
+      });
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Bot 置顶消息
+   */
+  async pinMessage(bot: BotEntity, params: BotPinMessageDto): Promise<any> {
+    const { room_id, message_id } = params;
+
+    // 检查权限
+    if (bot.permissions && !bot.permissions.can_pin_message) {
+      throw new HttpException('Bot没有置顶消息的权限', HttpStatus.FORBIDDEN);
+    }
+    if (!this.checkRoomAccess(bot, room_id)) {
+      throw new HttpException('Bot没有权限访问此房间', HttpStatus.FORBIDDEN);
+    }
+
+    const message = await this.MessageModel.findOne({ where: { id: message_id } });
+    if (!message) {
+      throw new HttpException('消息不存在', HttpStatus.NOT_FOUND);
+    }
+
+    // 更新房间的置顶消息
+    await this.RoomModel.update({ room_id }, { pinned_message_id: message_id } as any);
+
+    // 广播置顶事件
+    this.chatGateway.broadcastBotMessage(room_id, {
+      type: 'pin_message',
+      message_id,
+      room_id,
+      pinned_by: bot.bot_name,
+    });
+
+    return { success: true, message_id };
+  }
+
+  /**
+   * Bot 取消置顶消息
+   */
+  async unpinMessage(bot: BotEntity, room_id: number): Promise<any> {
+    if (bot.permissions && !bot.permissions.can_pin_message) {
+      throw new HttpException('Bot没有置顶消息的权限', HttpStatus.FORBIDDEN);
+    }
+    if (!this.checkRoomAccess(bot, room_id)) {
+      throw new HttpException('Bot没有权限访问此房间', HttpStatus.FORBIDDEN);
+    }
+
+    await this.RoomModel.update({ room_id }, { pinned_message_id: null } as any);
+
+    this.chatGateway.broadcastBotMessage(room_id, {
+      type: 'unpin_message',
+      room_id,
+      unpinned_by: bot.bot_name,
+    });
+
+    return { success: true };
+  }
+
+  // ==================== Phase 3: Markdown / File / Schedule ====================
+
+  /**
+   * 获取房间在线成员列表
+   */
+  async getRoomMembers(bot: BotEntity, room_id: number): Promise<any> {
+    if (!this.checkRoomAccess(bot, room_id)) {
+      throw new HttpException('Bot没有权限访问此房间', HttpStatus.FORBIDDEN);
+    }
+    const roomMap = this.chatGateway.getRoomListMap();
+    const roomData = roomMap[room_id];
+    if (!roomData || !roomData.on_line_user_list) {
+      return { room_id, online_count: 0, members: [] };
+    }
+    const members = roomData.on_line_user_list.map((u: any) => ({
+      user_id: u.id,
+      user_nick: u.user_nick,
+      user_avatar: u.user_avatar,
+      user_role: u.user_role,
+    }));
+    return { room_id, online_count: members.length, members };
+  }
+
+  /**
+   * Bot 发送文件消息
+   */
+  async sendDocument(bot: BotEntity, params: BotSendDocumentDto): Promise<any> {
+    const { room_id, file_url, file_name, caption } = params;
+
+    if (!this.checkRoomAccess(bot, room_id)) {
+      throw new HttpException('Bot没有权限访问此房间', HttpStatus.FORBIDDEN);
+    }
+
+    const room = await this.RoomModel.findOne({ where: { room_id } });
+    if (!room) {
+      throw new HttpException('房间不存在', HttpStatus.NOT_FOUND);
+    }
+
+    // 保存文件消息
+    const content = JSON.stringify({
+      file_url,
+      file_name: file_name || file_url.split('/').pop(),
+      caption: caption || '',
+    });
+    const message = new MessageEntity();
+    message.user_id = -bot.id;
+    message.room_id = room_id;
+    message.message_type = 'file';
+    message.message_content = content;
+    message.message_status = 1;
+    const savedMessage = await this.MessageModel.save(message);
+
+    const botUserInfo = {
+      id: -bot.id,
+      user_nick: bot.bot_name,
+      user_username: bot.bot_username,
+      user_avatar: bot.bot_avatar || '/images/default-bot-avatar.png',
+      user_role: 'bot',
+      is_bot: true,
+      bot_id: bot.id,
+    };
+
+    const messageData = {
+      id: savedMessage.id,
+      user_id: -bot.id,
+      room_id,
+      message_type: 'file',
+      message_content: { file_url, file_name: file_name || file_url.split('/').pop(), caption: caption || '' },
+      message_status: 1,
+      user_info: botUserInfo,
+      createdAt: savedMessage.createdAt,
+    };
+
+    this.chatGateway.broadcastBotMessage(room_id, messageData);
+    return { message_id: savedMessage.id, success: true };
+  }
+
+  /**
+   * Bot 创建定时消息
+   */
+  async scheduleMessage(bot: BotEntity, params: BotScheduleMessageDto): Promise<any> {
+    const {
+      room_id,
+      message_type,
+      message_content,
+      send_at,
+      repeat = 'once',
+      parse_mode,
+      timezone = '+08:00',
+    } = params;
+
+    if (!this.checkRoomAccess(bot, room_id)) {
+      throw new HttpException('Bot没有权限访问此房间', HttpStatus.FORBIDDEN);
+    }
+
+    // 处理时区: 如果 send_at 没有时区后缀, 追加用户指定的 timezone
+    let timeStr = send_at;
+    if (!/[Zz]/.test(timeStr) && !/[+-]\d{2}:\d{2}$/.test(timeStr)) {
+      timeStr = timeStr + timezone;
+    }
+    const sendDate = new Date(timeStr);
+    if (sendDate <= new Date()) {
+      throw new HttpException('发送时间必须在将来', HttpStatus.BAD_REQUEST);
+    }
+
+    const scheduled = new BotScheduledMessageEntity();
+    scheduled.bot_id = bot.id;
+    scheduled.room_id = room_id;
+    scheduled.message_type = message_type;
+    scheduled.message_content = typeof message_content === 'string' ? message_content : JSON.stringify(message_content);
+    scheduled.repeat = repeat;
+    scheduled.parse_mode = parse_mode;
+    scheduled.next_send_at = sendDate;
+    scheduled.status = 1;
+    scheduled.sent_count = 0;
+
+    const saved = await this.BotScheduledMessageModel.save(scheduled);
+    return { success: true, scheduled_id: saved.id, next_send_at: saved.next_send_at };
+  }
+
+  /**
+   * Bot 取消定时消息
+   */
+  async cancelScheduledMessage(bot: BotEntity, scheduledId: number): Promise<any> {
+    const scheduled = await this.BotScheduledMessageModel.findOne({ where: { id: scheduledId, bot_id: bot.id } });
+    if (!scheduled) {
+      throw new HttpException('定时消息不存在', HttpStatus.NOT_FOUND);
+    }
+    scheduled.status = 0;
+    await this.BotScheduledMessageModel.save(scheduled);
+    return { success: true };
+  }
+
+  /**
+   * 获取 Bot 的定时消息列表
+   */
+  async getScheduledMessages(bot: BotEntity): Promise<any> {
+    const list = await this.BotScheduledMessageModel.find({
+      where: { bot_id: bot.id, status: 1 },
+      order: { next_send_at: 'ASC' },
+    });
+    return list;
+  }
+
+  private readonly logger = new Logger('BotScheduler');
+
+  /**
+   * 执行到期的定时消息 (每30秒检查一次)
+   */
+  @Interval(30000)
+  async executeScheduledMessages(): Promise<void> {
+    const now = new Date();
+    this.logger.log(`[定时任务] 检查到期消息... 当前时间: ${now.toISOString()}`);
+    const dueMessages = await this.BotScheduledMessageModel.createQueryBuilder('s')
+      .where('s.status = 1')
+      .andWhere('s.next_send_at <= :now', { now })
+      .getMany();
+    this.logger.log(`[定时任务] 找到 ${dueMessages.length} 条到期消息`);
+
+    for (const scheduled of dueMessages) {
+      try {
+        const bot = await this.BotModel.findOne({ where: { id: scheduled.bot_id, status: 1 } });
+        if (!bot) {
+          scheduled.status = 0;
+          await this.BotScheduledMessageModel.save(scheduled);
+          continue;
+        }
+
+        // 发送消息
+        await this.sendMessage(bot, {
+          room_id: scheduled.room_id,
+          message_type: scheduled.message_type,
+          message_content: scheduled.message_content,
+          parse_mode: scheduled.parse_mode,
+        });
+
+        scheduled.sent_count += 1;
+
+        // 更新下次发送时间或标记完成
+        if (scheduled.repeat === 'daily') {
+          scheduled.next_send_at = new Date(scheduled.next_send_at.getTime() + 24 * 60 * 60 * 1000);
+        } else if (scheduled.repeat === 'weekly') {
+          scheduled.next_send_at = new Date(scheduled.next_send_at.getTime() + 7 * 24 * 60 * 60 * 1000);
+        } else {
+          scheduled.status = 2; // 单次任务完成
+        }
+
+        await this.BotScheduledMessageModel.save(scheduled);
+      } catch (e) {
+        // 单条失败不影响其他
+      }
+    }
   }
 
   /**

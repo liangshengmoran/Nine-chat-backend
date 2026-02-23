@@ -187,18 +187,38 @@ export class MusicService {
     if (c > 0) {
       throw new HttpException(`您已经收藏过这首歌了！`, HttpStatus.BAD_REQUEST);
     }
-    // 构建收藏记录，确保所有字段都有值
-    const collectData = {
-      user_id,
-      music_mid,
-      music_name: music_name || '',
-      music_singer: music_singer || '',
-      music_album: music_album || '',
-      music_cover: music_cover || music_albumpic || '',
-      music_albumpic: music_albumpic || music_cover || '',
-      source: source || 'kugou',
-    };
-    await this.CollectModel.save(collectData);
+
+    // 检查是否有之前取消收藏的记录（soft-delete, status=0），如果有则恢复
+    const existing = await this.CollectModel.findOne({
+      where: { music_mid, user_id, status: 0 },
+    });
+    if (existing) {
+      await this.CollectModel.update(
+        { id: existing.id },
+        {
+          status: 1,
+          music_name: music_name || existing.music_name || '',
+          music_singer: music_singer || existing.music_singer || '',
+          music_album: music_album || existing.music_album || '',
+          music_cover: music_cover || music_albumpic || existing.music_cover || '',
+          music_albumpic: music_albumpic || music_cover || existing.music_albumpic || '',
+          source: source || existing.source || 'kugou',
+        },
+      );
+    } else {
+      // 全新收藏，插入新记录
+      const collectData = {
+        user_id,
+        music_mid,
+        music_name: music_name || '',
+        music_singer: music_singer || '',
+        music_album: music_album || '',
+        music_cover: music_cover || music_albumpic || '',
+        music_albumpic: music_albumpic || music_cover || '',
+        source: source || 'kugou',
+      };
+      await this.CollectModel.save(collectData);
+    }
 
     // 管理员收藏的歌曲加入推荐
     const isRecommend = user_role === 'admin' ? 1 : 0;

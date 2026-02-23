@@ -1,14 +1,24 @@
-import { IsNotEmpty, MinLength, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsNotEmpty, IsString, MinLength, MaxLength } from 'class-validator';
 
 export class UserLoginDto {
-  @ApiProperty({ example: 'admin', description: '用户名', required: true })
+  @ApiProperty({
+    description: '用户名（注册时设置的登录名）',
+    example: 'testuser',
+  })
   @IsNotEmpty({ message: '用户名不能为空' })
+  @IsString()
   user_name: string;
 
-  @ApiProperty({ example: '123456', description: '密码', required: true })
+  @ApiProperty({
+    description: '登录密码（6-20位）',
+    example: 'password123',
+    minLength: 6,
+    maxLength: 20,
+  })
   @IsNotEmpty({ message: '密码不能为空' })
-  @MinLength(6, { message: '密码长度最低为6位' })
-  @MaxLength(30, { message: '密码长度最多为30位' })
+  @IsString()
+  @MinLength(6, { message: '密码长度不能小于6' })
+  @MaxLength(20, { message: '密码长度不能超过20' })
   user_password: string;
 }

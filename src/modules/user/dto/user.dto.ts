@@ -1,41 +1,43 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UserQueryDto {
-  @ApiProperty({ description: '用户ID', required: true })
-  @IsNumber()
+  @ApiProperty({
+    description: '要查询的用户ID',
+    example: 1,
+  })
+  @IsNotEmpty({ message: 'user_id 不能为空' })
   @Type(() => Number)
-  id: number;
+  user_id: number;
 }
 
 export class UserUpdateDto {
-  @ApiPropertyOptional({ description: '用户名' })
+  @ApiPropertyOptional({
+    description: '新的昵称（最多20字符）',
+    example: '新昵称',
+    maxLength: 20,
+  })
   @IsOptional()
   @IsString()
-  user_name?: string;
-
-  @ApiPropertyOptional({ description: '用户昵称' })
-  @IsOptional()
-  @IsString()
+  @MaxLength(20)
   user_nick?: string;
 
-  @ApiPropertyOptional({ description: '用户性别' })
-  @IsOptional()
-  user_sex?: any;
-
-  @ApiPropertyOptional({ description: '个人签名' })
+  @ApiPropertyOptional({
+    description: '个性签名（最多100字符）',
+    example: '这是我的个性签名~',
+    maxLength: 100,
+  })
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   user_sign?: string;
 
-  @ApiPropertyOptional({ description: '用户头像URL' })
+  @ApiPropertyOptional({
+    description: '头像 URL',
+    example: '/uploads/avatars/user1.png',
+  })
   @IsOptional()
   @IsString()
   user_avatar?: string;
-
-  @ApiPropertyOptional({ description: '房间背景图URL' })
-  @IsOptional()
-  @IsString()
-  user_room_bg?: string;
 }
