@@ -12,6 +12,8 @@ import {
   getMusicDetailUnified,
 } from 'src/utils/spider';
 import { addAlbumDto } from './dto/addAlbum.dto';
+import { PermissionService } from 'src/common/services/permission.service';
+import { PERM } from 'src/common/constants/permissions';
 
 @Injectable()
 export class MusicService {
@@ -20,6 +22,7 @@ export class MusicService {
     private readonly MusicModel: Repository<MusicEntity>,
     @InjectRepository(CollectEntity)
     private readonly CollectModel: Repository<CollectEntity>,
+    private readonly permissionService: PermissionService,
   ) {}
 
   /* 初始化给官方聊天室将首页推荐的专辑加入到库里 */
@@ -220,8 +223,14 @@ export class MusicService {
       await this.CollectModel.save(collectData);
     }
 
-    // 管理员收藏的歌曲加入推荐
-    const isRecommend = user_role === 'admin' ? 1 : 0;
+    // 动态权限检查：是否有加入推荐曲库的权限
+    const canRecommend = await this.permissionService.checkPermission(
+      user_id,
+      PERM.MUSIC_RECOMMEND,
+      undefined,
+      user_role,
+    );
+    const isRecommend = canRecommend ? 1 : 0;
     const musicData = {
       music_mid,
       music_name: music_name || '',

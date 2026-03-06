@@ -1202,4 +1202,160 @@ Authorization: Bot <token>
     const { user_id } = req.payload;
     return this.botService.removeBotManager(id, user_id, targetUserId);
   }
+
+  // ==================== 沙箱模式 API ====================
+
+  @Post('sandbox/enable')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '启用沙箱模式',
+    description: `为 Bot 启用沙箱模式。自动创建专属测试房间（🧪前缀），Bot 免审批立即可用。
+
+**沙箱特性：**
+- 自动创建隐藏测试房间
+- Bot 免审批，立即可用
+- 仅 Owner 和 Bot Manager 可见
+- 速率限制放宽`,
+  })
+  @ApiQuery({ name: 'bot_id', required: true, example: 1 })
+  async enableSandbox(@Req() req, @Query('bot_id', ParseIntPipe) botId: number) {
+    const bot = await this.botService.validateBotById(botId);
+    return this.botService.enableSandbox(bot, req.payload.user_id);
+  }
+
+  @Post('sandbox/simulate')
+  @UseGuards(BotGuard)
+  @ApiOperation({
+    summary: '模拟事件（沙箱专用）',
+    description: `向 Bot 发送模拟事件用于调试。仅沙箱模式可用。
+
+**请求体示例：**
+\`\`\`json
+{
+  "event": "member.joined",
+  "data": { "user_info": { "user_nick": "测试用户" } }
+}
+\`\`\``,
+  })
+  @ApiSecurity('Bot-auth')
+  async simulateEvent(@Req() req, @Body() body: { event: string; data?: any }) {
+    return this.botService.simulateEvent(req.bot, body.event, body.data || {});
+  }
+
+  @Post('sandbox/echo')
+  @UseGuards(BotGuard)
+  @ApiOperation({
+    summary: '内置 Echo 回显（沙箱专用）',
+    description: '无需外部服务器，直接在沙箱房间发送回显消息。用于验证 Bot 消息发送是否正常。',
+  })
+  @ApiSecurity('Bot-auth')
+  async sandboxEcho(@Req() req, @Body() body: { message: string }) {
+    return this.botService.sandboxEcho(req.bot, body.message);
+  }
+
+  @Post('sandbox/promote')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '一键转正',
+    description: '关闭沙箱模式，将 Bot 提交到正式审批流程。',
+  })
+  @ApiQuery({ name: 'bot_id', required: true, example: 1 })
+  async promoteSandbox(@Req() req, @Query('bot_id', ParseIntPipe) botId: number) {
+    const bot = await this.botService.validateBotById(botId);
+    return this.botService.promoteSandbox(bot, req.payload.user_id);
+  }
+
+  // ==================== 事件订阅 API ====================
+
+  @Get('subscriptions')
+  @UseGuards(BotGuard)
+  @ApiOperation({
+    summary: '获取事件订阅',
+    description: `查看当前 Bot 订阅的事件列表。
+
+**返回值：**
+- \`subscribed_events\`: 事件列表 (null = 全部)
+- \`is_all\`: 是否订阅全部事件`,
+  })
+  @ApiSecurity('Bot-auth')
+  async getSubscriptions(@Req() req) {
+    return this.botService.getSubscriptions(req.bot);
+  }
+
+  @Post('subscriptions')
+  @UseGuards(BotGuard)
+  @ApiOperation({
+    summary: '设置事件订阅',
+    description: `设置 Bot 需要接收的事件类型列表。
+
+**请求体：**
+\`\`\`json
+{
+  "events": ["message.text", "member.joined", "music.chosen"]
+}
+\`\`\`
+
+传 \`null\` 或不传 \`events\` 表示订阅全部事件。
+传 \`[]\` 表示不接收任何事件。
+
+可用事件类型请调用 GET /bot/api/event-types 查看。`,
+  })
+  @ApiSecurity('Bot-auth')
+  async setSubscriptions(@Req() req, @Body() body: { events?: string[] | null }) {
+    return this.botService.setSubscriptions(req.bot, body.events ?? null);
+  }
+
+  @Get('event-types')
+  @ApiOperation({
+    summary: '获取所有可订阅事件类型',
+    description: '列出系统支持的全部 22 种事件类型（含描述、载荷示例、分组信息）。无需认证。',
+  })
+  async getEventTypes() {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { BOT_EVENT_DEFINITIONS, BOT_EVENT_GROUPS } = require('src/common/constants/bot-events');
+    return { events: BOT_EVENT_DEFINITIONS, groups: BOT_EVENT_GROUPS };
+  }
+
+  // ==================== Webhook 管理 API ====================
+
+  @Get('webhook/logs')
+  @UseGuards(BotGuard)
+  @ApiOperation({
+    summary: '获取 Webhook 投递日志',
+    description: '查看最近的 Webhook 推送记录（成功/失败/重试状态）。',
+  })
+  @ApiSecurity('Bot-auth')
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
+  async getWebhookLogs(@Req() req, @Query('limit') limit = 50) {
+    return this.botService.getWebhookLogs(req.bot.id, Math.min(+limit, 100));
+  }
+
+  @Post('webhook/test')
+  @UseGuards(BotGuard)
+  @ApiOperation({
+    summary: '测试 Webhook 连通性',
+    description: `向配置的 Webhook URL 发送一个 \`webhook.test\` 测试事件。
+
+**返回值：**
+- \`success\`: 是否连通
+- \`status_code\`: HTTP 响应码
+- \`response_time_ms\`: 响应时间(ms)`,
+  })
+  @ApiSecurity('Bot-auth')
+  async testWebhook(@Req() req) {
+    return this.botService.testWebhook(req.bot);
+  }
+
+  @Get('webhook/stats')
+  @UseGuards(BotGuard)
+  @ApiOperation({
+    summary: '获取 Webhook 投递统计',
+    description: '查看最近投递的成功率统计。',
+  })
+  @ApiSecurity('Bot-auth')
+  async getWebhookStats(@Req() req) {
+    return this.botService.getWebhookStats(req.bot.id);
+  }
 }

@@ -4,6 +4,7 @@ import { BotEntity } from './bot.entity';
 import { BotManagerEntity } from './bot-manager.entity';
 import { BotUpdateEntity } from './bot-update.entity';
 import { BotScheduledMessageEntity } from './bot-scheduled-message.entity';
+import { WebhookLogEntity } from './webhook-log.entity';
 import { BotService } from './bot.service';
 import { BotController } from './bot.controller';
 import { MessageEntity } from '../chat/message.entity';
@@ -18,6 +19,7 @@ import { AdminModule } from '../admin/admin.module';
       BotManagerEntity,
       BotUpdateEntity,
       BotScheduledMessageEntity,
+      WebhookLogEntity,
       MessageEntity,
       RoomEntity,
     ]),

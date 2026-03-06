@@ -13,6 +13,8 @@ import { SensitiveWordEntity } from './sensitive-word.entity';
 import { FeedbackEntity } from './feedback.entity';
 import { InviteCodeEntity } from './invite-code.entity';
 import { IpBlacklistEntity } from './ip-blacklist.entity';
+import { PermissionService } from 'src/common/services/permission.service';
+import { PERM } from 'src/common/constants/permissions';
 
 @Injectable()
 export class AdminService {
@@ -41,6 +43,7 @@ export class AdminService {
     private readonly InviteCodeModel: Repository<InviteCodeEntity>,
     @InjectRepository(IpBlacklistEntity)
     private readonly IpBlacklistModel: Repository<IpBlacklistEntity>,
+    private readonly permissionService: PermissionService,
   ) {}
 
   // ==================== 仪表盘统计 ====================
@@ -178,14 +181,19 @@ export class AdminService {
     const { user_id, role, room_id } = params;
     const { user_id: operator_id, user_role: operatorRole } = operatorPayload;
 
+    // 动态权限检查
+    await this.permissionService.requirePermission(operator_id, PERM.USER_SET_ROLE, undefined, operatorRole);
+
     const user = await this.UserModel.findOne({ where: { id: user_id } });
     if (!user) {
       throw new HttpException('用户不存在', HttpStatus.NOT_FOUND);
     }
 
-    // 不能修改超管
-    if (user.user_role === 'super') {
-      throw new HttpException('不能修改超级管理员', HttpStatus.FORBIDDEN);
+    // 不能修改同级或更高级别的用户
+    const operatorLevel = await this.permissionService.getUserMaxLevel(operator_id, undefined, operatorRole);
+    const targetLevel = await this.permissionService.getUserMaxLevel(user_id, undefined, user.user_role);
+    if (targetLevel >= operatorLevel) {
+      throw new HttpException('不能修改同级或更高级别的用户', HttpStatus.FORBIDDEN);
     }
 
     // ========== 处理房间角色：owner, moderator, remove_moderator ==========
@@ -289,7 +297,7 @@ export class AdminService {
   /**
    * 封禁/解封用户
    */
-  async toggleUserBan(params) {
+  async toggleUserBan(params, operatorPayload?) {
     const { user_id } = params;
 
     const user = await this.UserModel.findOne({ where: { id: user_id } });
@@ -297,8 +305,18 @@ export class AdminService {
       throw new HttpException('用户不存在', HttpStatus.NOT_FOUND);
     }
 
-    // 不能封禁超管或管理员
-    if (['super', 'admin'].includes(user.user_role)) {
+    // 不能封禁同级或更高级别的用户
+    if (operatorPayload) {
+      const operatorLevel = await this.permissionService.getUserMaxLevel(
+        operatorPayload.user_id,
+        undefined,
+        operatorPayload.user_role,
+      );
+      const targetLevel = await this.permissionService.getUserMaxLevel(user_id, undefined, user.user_role);
+      if (targetLevel >= operatorLevel) {
+        throw new HttpException('不能封禁同级或更高级别的用户', HttpStatus.FORBIDDEN);
+      }
+    } else if (['super', 'admin'].includes(user.user_role)) {
       throw new HttpException('不能封禁管理员', HttpStatus.FORBIDDEN);
     }
 
@@ -1285,5 +1303,220 @@ export class AdminService {
       .execute();
 
     return { message: '过期数据清理完成' };
+  }
+
+  // ==================== 动态权限管理 (RBAC) ====================
+
+  /**
+   * 获取角色列表
+   */
+  async getRoles() {
+    const { RoleEntity: _RoleEntity } = await import('src/common/entities/role.entity');
+    const roleRepo = this.permissionService['RoleModel'];
+    const roles = await roleRepo.find({ order: { role_level: 'ASC' } });
+    return { list: roles };
+  }
+
+  /**
+   * 创建自定义角色
+   */
+  async createRole(params) {
+    const roleRepo = this.permissionService['RoleModel'];
+    const existing = await roleRepo.findOne({ where: { role_key: params.role_key } });
+    if (existing) {
+      throw new HttpException('角色标识符已存在', HttpStatus.BAD_REQUEST);
+    }
+    const role = await roleRepo.save({
+      ...params,
+      is_system: false,
+      status: 1,
+    });
+    return role;
+  }
+
+  /**
+   * 更新角色
+   */
+  async updateRole(params) {
+    const roleRepo = this.permissionService['RoleModel'];
+    const role = await roleRepo.findOne({ where: { id: params.id } });
+    if (!role) {
+      throw new HttpException('角色不存在', HttpStatus.NOT_FOUND);
+    }
+    // 系统内置角色不允许修改 role_key
+    const updateData: any = { ...params };
+    delete updateData.id;
+    if (role.is_system) {
+      delete updateData.role_key;
+    }
+    await roleRepo.update({ id: params.id }, updateData);
+    this.permissionService.clearAllCache();
+    return { success: true };
+  }
+
+  /**
+   * 删除自定义角色
+   */
+  async deleteRole(id: number) {
+    const roleRepo = this.permissionService['RoleModel'];
+    const role = await roleRepo.findOne({ where: { id } });
+    if (!role) {
+      throw new HttpException('角色不存在', HttpStatus.NOT_FOUND);
+    }
+    if (role.is_system) {
+      throw new HttpException('不能删除系统内置角色', HttpStatus.FORBIDDEN);
+    }
+    // 删除该角色的所有权限绑定和用户绑定
+    const rpRepo = this.permissionService['RolePermissionModel'];
+    const urRepo = this.permissionService['UserRoleModel'];
+    await rpRepo.delete({ role_id: id });
+    await urRepo.delete({ role_id: id });
+    await roleRepo.delete({ id });
+    this.permissionService.clearAllCache();
+    return { success: true };
+  }
+
+  /**
+   * 获取所有权限项列表
+   */
+  async getPermissions() {
+    const permRepo = this.permissionService['PermissionModel'];
+    const permissions = await permRepo.find({ order: { perm_group: 'ASC', id: 'ASC' } });
+    // 按组分类
+    const grouped: Record<string, any[]> = {};
+    for (const perm of permissions) {
+      if (!grouped[perm.perm_group]) grouped[perm.perm_group] = [];
+      grouped[perm.perm_group].push(perm);
+    }
+    return { list: permissions, grouped };
+  }
+
+  /**
+   * 获取角色的权限配置
+   */
+  async getRolePermissions(roleId: number) {
+    const rpRepo = this.permissionService['RolePermissionModel'];
+    const permRepo = this.permissionService['PermissionModel'];
+    const bindings = await rpRepo.find({ where: { role_id: roleId } });
+    const allPerms = await permRepo.find();
+    const permMap = new Map(allPerms.map((p) => [p.id, p]));
+
+    const result = bindings.map((b) => ({
+      ...b,
+      permission: permMap.get(b.permission_id) || null,
+    }));
+    return { list: result };
+  }
+
+  /**
+   * 批量更新角色的权限配置
+   */
+  async updateRolePermissions(roleId: number, params) {
+    const rpRepo = this.permissionService['RolePermissionModel'];
+    const roleRepo = this.permissionService['RoleModel'];
+
+    const role = await roleRepo.findOne({ where: { id: roleId } });
+    if (!role) {
+      throw new HttpException('角色不存在', HttpStatus.NOT_FOUND);
+    }
+
+    for (const item of params.permissions) {
+      const { permission_id, scope_value = '*', config = null, enabled } = item;
+      const existing = await rpRepo.findOne({
+        where: { role_id: roleId, permission_id, scope_value },
+      });
+
+      if (enabled) {
+        if (existing) {
+          await rpRepo.update({ id: existing.id }, { config, status: 1 });
+        } else {
+          await rpRepo.save({ role_id: roleId, permission_id, scope_value, config, status: 1 });
+        }
+      } else {
+        if (existing) {
+          await rpRepo.update({ id: existing.id }, { status: 0 });
+        }
+      }
+    }
+
+    this.permissionService.clearAllCache();
+    return { success: true };
+  }
+
+  /**
+   * 获取用户的角色列表
+   */
+  async getUserRoles(userId: number) {
+    const urRepo = this.permissionService['UserRoleModel'];
+    const roleRepo = this.permissionService['RoleModel'];
+    const bindings = await urRepo.find({ where: { user_id: userId, status: 1 } });
+    const roleIds = bindings.map((b) => b.role_id);
+
+    if (roleIds.length === 0) {
+      // 回退到 user_role 字段
+      const user = await this.UserModel.findOne({ where: { id: userId } });
+      if (user) {
+        const defaultRole = await roleRepo.findOne({ where: { role_key: user.user_role } });
+        return { list: defaultRole ? [{ ...defaultRole, scope_value: '*', source: 'default' }] : [] };
+      }
+      return { list: [] };
+    }
+
+    const roles = await roleRepo.find({ where: { id: In(roleIds) } });
+    const roleMap = new Map(roles.map((r) => [r.id, r]));
+    const result = bindings.map((b) => ({
+      ...roleMap.get(b.role_id),
+      scope_value: b.scope_value,
+      assigned_by: b.assigned_by,
+      source: 'dynamic',
+    }));
+    return { list: result };
+  }
+
+  /**
+   * 给用户分配角色
+   */
+  async assignUserRole(userId: number, params, operatorPayload) {
+    const urRepo = this.permissionService['UserRoleModel'];
+    const roleRepo = this.permissionService['RoleModel'];
+
+    const role = await roleRepo.findOne({ where: { id: params.role_id } });
+    if (!role) {
+      throw new HttpException('角色不存在', HttpStatus.NOT_FOUND);
+    }
+
+    const scope_value = params.scope_value || '*';
+    const existing = await urRepo.findOne({
+      where: { user_id: userId, role_id: params.role_id, scope_value },
+    });
+
+    if (existing && existing.status === 1) {
+      throw new HttpException('用户已拥有此角色', HttpStatus.BAD_REQUEST);
+    }
+
+    if (existing) {
+      await urRepo.update({ id: existing.id }, { status: 1, assigned_by: operatorPayload.user_id });
+    } else {
+      await urRepo.save({
+        user_id: userId,
+        role_id: params.role_id,
+        scope_value,
+        assigned_by: operatorPayload.user_id,
+        status: 1,
+      });
+    }
+
+    this.permissionService.clearCache(userId);
+    return { success: true };
+  }
+
+  /**
+   * 撤销用户角色
+   */
+  async removeUserRole(userId: number, roleId: number) {
+    const urRepo = this.permissionService['UserRoleModel'];
+    const result = await urRepo.update({ user_id: userId, role_id: roleId, status: 1 }, { status: 0 });
+    this.permissionService.clearCache(userId);
+    return { success: true, affected: result.affected };
   }
 }

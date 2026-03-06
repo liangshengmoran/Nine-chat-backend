@@ -101,4 +101,21 @@ export class BotEntity extends BaseEntity {
     can_pin_message: boolean; // 置顶消息
     max_message_length: number; // 最大消息长度
   };
+
+  // ==================== 事件订阅字段 ====================
+
+  @Column({
+    type: 'simple-json',
+    nullable: true,
+    comment: '订阅的事件列表, null=全部事件, []=不接收事件',
+  })
+  subscribed_events: string[] | null;
+
+  // ==================== 沙箱模式字段 ====================
+
+  @Column({ default: false, comment: '是否为沙箱模式 (测试用)' })
+  sandbox_mode: boolean;
+
+  @Column({ nullable: true, comment: '沙箱专属测试房间ID' })
+  sandbox_room_id: number;
 }

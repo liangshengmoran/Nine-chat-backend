@@ -13,8 +13,12 @@ import { getMusicDetailUnified, getMusicSrcUnified, MusicAuthOverride } from 'sr
 import * as crypto from 'crypto';
 import axios from 'axios';
 import { getTimeSpace } from 'src/utils/tools';
-import { getEffectiveRole, canCutMusic, canRemoveMusic, getMusicCooldown } from 'src/common/constants/roles';
 import { AdminService } from '../admin/admin.service';
+import { PermissionService } from 'src/common/services/permission.service';
+import { PERM } from 'src/common/constants/permissions';
+import { BotService } from '../bot/bot.service';
+import { BOT_EVENTS } from 'src/common/constants/bot-events';
+import { Inject, forwardRef } from '@nestjs/common';
 
 import { WebSocketGateway, WebSocketServer, SubscribeMessage } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
@@ -47,6 +51,9 @@ export class WsChatGateway {
     @InjectRepository(RoomMusicAuthEntity)
     private readonly RoomMusicAuthModel: Repository<RoomMusicAuthEntity>,
     private readonly adminService: AdminService,
+    private readonly permissionService: PermissionService,
+    @Inject(forwardRef(() => BotService))
+    private readonly botService: BotService,
   ) {}
   @WebSocketServer() private socket: Server;
 
@@ -106,6 +113,15 @@ export class WsChatGateway {
       on_line_user_list: formatOnlineUser(on_line_user_list, user_id),
       msg: `[${user_nick}]离开房间了`,
     });
+
+    // Bot 事件: member.left
+    this.botService
+      .broadcastEvent(Number(room_id), BOT_EVENTS.MEMBER_LEFT, {
+        room_id: Number(room_id),
+        user_info: { id: user_id, user_nick },
+        online_count: on_line_user_list.length,
+      })
+      .catch(() => {});
   }
 
   /* 接收到客户端的消息 */
@@ -190,8 +206,22 @@ export class WsChatGateway {
 
     this.socket.to(room_id).emit('message', { data: result, msg: '有一条新消息' });
 
-    // ========== Bot 命令检测 ==========
-    // 检查消息是否以 / 开头（命令格式），触发对应 Bot 的 Webhook
+    // Bot 事件: message.text / message.image + bot.command 检测
+    const eventType =
+      message_type === 1
+        ? BOT_EVENTS.MESSAGE_TEXT
+        : message_type === 2
+        ? BOT_EVENTS.MESSAGE_IMAGE
+        : BOT_EVENTS.MESSAGE_FILE;
+    this.botService
+      .broadcastEvent(Number(room_id), eventType, {
+        room_id: Number(room_id),
+        message: result,
+        user_info: { id: user_id, user_nick, user_avatar, user_role },
+      })
+      .catch(() => {});
+
+    // Bot 命令检测 (仍保留，因为 bot.command 需要匹配注册的命令)
     if (message_type === 1) {
       try {
         const parsed =
@@ -199,19 +229,12 @@ export class WsChatGateway {
         const text = parsed?.text || (typeof result.message_content === 'string' ? result.message_content : '');
         if (text.startsWith('/')) {
           const parts = text.split(' ');
-          const commandName = parts[0].substring(1).toLowerCase(); // 去掉 /
+          const commandName = parts[0].substring(1).toLowerCase();
           const commandArgs = parts.slice(1).join(' ');
-          // 异步处理，不阻塞消息发送
           this.handleBotCommand(room_id, commandName, commandArgs, result).catch(() => {});
         }
-      } catch (e) {
-        // 解析失败忽略
-      }
+      } catch (e) {}
     }
-
-    // ========== Bot getUpdates 队列写入 ==========
-    // 将消息事件写入没有配置Webhook的Bot的更新队列
-    this.queueMessageForBots(room_id, result).catch(() => {});
   }
 
   /**
@@ -223,14 +246,12 @@ export class WsChatGateway {
     const { music_name = '未知歌曲', music_singer = '未知歌手', choose_user_id } = music || {};
     const { room_id } = this.clientIdMap[client.id];
     const { user_role, user_nick, id: user_id } = await this.getUserInfoForClientId(client.id);
-    const { room_admin_info } = this.room_list_map[room_id];
+    const { _room_admin_info } = this.room_list_map[room_id];
 
-    // 获取房间管理员列表
-    const moderatorIds = await this.getRoomModeratorIds(room_id);
-    // 计算有效角色
-    const effectiveRole = getEffectiveRole(user_role, user_id, room_admin_info.id, moderatorIds);
-
-    if (!canCutMusic(effectiveRole, user_id, choose_user_id)) {
+    // 动态权限检查：是否可以切歌
+    const canCutAny = await this.permissionService.checkPermission(user_id, PERM.MUSIC_CUT_ANY, room_id, user_role);
+    const canCutOwn = await this.permissionService.checkPermission(user_id, PERM.MUSIC_CUT_OWN, room_id, user_role);
+    if (!canCutAny && !(canCutOwn && user_id === choose_user_id)) {
       return client.emit('tips', {
         code: -1,
         msg: '非管理员或房主只能切换自己歌曲哟...',
@@ -241,6 +262,16 @@ export class WsChatGateway {
       message_type: 'info',
       message_content: `${user_nick} 切掉了 ${music_singer}的[${music_name}]`,
     });
+
+    // Bot 事件: music.skipped
+    this.botService
+      .broadcastEvent(Number(room_id), BOT_EVENTS.MUSIC_SKIPPED, {
+        room_id: Number(room_id),
+        music_info: { music_name, music_singer },
+        operator: { id: user_id, user_nick },
+      })
+      .catch(() => {});
+
     this.switchMusic(room_id);
   }
 
@@ -250,23 +281,31 @@ export class WsChatGateway {
     const { user_id, room_id } = this.clientIdMap[client.id];
     const user_info: any = await this.getUserInfoForClientId(client.id);
     const { music_name, music_singer, music_mid } = musicInfo;
-    const { music_queue_list, room_admin_info } = this.room_list_map[this.clientIdMap[client.id].room_id];
+    const { music_queue_list, _room_admin_info } = this.room_list_map[this.clientIdMap[client.id].room_id];
 
     if (music_queue_list.some((t) => t.music_mid === music_mid)) {
       return client.emit('tips', { code: -1, msg: '这首歌已经在列表中啦！' });
     }
 
-    // 获取房间管理员列表并计算有效角色
-    const moderatorIds = await this.getRoomModeratorIds(room_id);
-    const effectiveRole = getEffectiveRole(user_info.user_role, user_id, room_admin_info.id, moderatorIds);
-
-    // 获取点歌冷却时间
-    const cooldown = getMusicCooldown(effectiveRole);
-
-    // 游客禁止点歌
-    if (cooldown === -1) {
-      return client.emit('tips', { code: -1, msg: '请登录后点歌' });
+    // 动态权限检查：是否可以点歌
+    const canChoose = await this.permissionService.checkPermission(
+      user_id,
+      PERM.MUSIC_CHOOSE,
+      room_id,
+      user_info.user_role,
+    );
+    if (!canChoose) {
+      return client.emit('tips', { code: -1, msg: '您没有权限点歌' });
     }
+
+    // 获取动态冷却时间配置
+    const chooseCfg = await this.permissionService.getPermissionConfig(
+      user_id,
+      PERM.MUSIC_CHOOSE,
+      room_id,
+      user_info.user_role,
+    );
+    const cooldown = chooseCfg?.cooldown_sec ?? 8;
 
     // 检查点歌冷却时间
     if (cooldown > 0 && this.chooseMusicTimeSpace[user_id]) {
@@ -288,6 +327,16 @@ export class WsChatGateway {
       music_queue_list: music_queue_list,
       msg: `${user_info.user_nick} 点了一首 ${music_name}(${music_singer})`,
     });
+
+    // Bot 事件: music.chosen
+    this.botService
+      .broadcastEvent(Number(room_id), BOT_EVENTS.MUSIC_CHOSEN, {
+        room_id: Number(room_id),
+        music_info: { music_mid, music_name, music_singer },
+        user_info: { id: user_id, user_nick: user_info.user_nick },
+        queue_position: music_queue_list.length,
+      })
+      .catch(() => {});
   }
 
   /**
@@ -301,14 +350,23 @@ export class WsChatGateway {
     const { user_id, room_id } = this.clientIdMap[client.id]; // 房间信息
     const { music_mid, music_name, music_singer, user_info: chooser_info } = music; // 当前操作的歌曲信息
     const chooser_id = chooser_info?.id; // 点歌人 ID
-    const { music_queue_list, room_admin_info } = this.room_list_map[room_id];
+    const { music_queue_list, _room_admin_info } = this.room_list_map[room_id];
 
-    // 获取当前用户信息和有效角色
+    // 动态权限检查：是否可以从队列移除歌曲
     const currentUser = await this.getUserInfoForClientId(client.id);
-    const moderatorIds = await this.getRoomModeratorIds(room_id);
-    const effectiveRole = getEffectiveRole(currentUser.user_role, user_id, room_admin_info.id, moderatorIds);
-
-    if (!canRemoveMusic(effectiveRole, user_id, chooser_id)) {
+    const canRemoveAny = await this.permissionService.checkPermission(
+      user_id,
+      PERM.MUSIC_REMOVE_ANY,
+      room_id,
+      currentUser.user_role,
+    );
+    const canRemoveOwn = await this.permissionService.checkPermission(
+      user_id,
+      PERM.MUSIC_REMOVE_OWN,
+      room_id,
+      currentUser.user_role,
+    );
+    if (!canRemoveAny && !(canRemoveOwn && user_id === chooser_id)) {
       return client.emit('tips', {
         code: -1,
         msg: '非管理员或房主只能移除掉自己点的歌曲哟...',
@@ -325,6 +383,15 @@ export class WsChatGateway {
       music_queue_list: music_queue_list,
       msg: `${currentUser.user_nick} 移除了歌单中的 ${music_name}(${music_singer})`,
     });
+
+    // Bot 事件: music.removed
+    this.botService
+      .broadcastEvent(Number(room_id), BOT_EVENTS.MUSIC_REMOVED, {
+        room_id: Number(room_id),
+        music_info: { music_mid, music_name, music_singer },
+        operator: { id: user_id, user_nick: currentUser.user_nick },
+      })
+      .catch(() => {});
   }
 
   /**
@@ -359,6 +426,15 @@ export class WsChatGateway {
       msg: `房主 [${user_nick}] 修改了房间信息`,
     };
     this.socket.to(room_id).emit('updateRoomlist', data);
+
+    // Bot 事件: room.updated
+    this.botService
+      .broadcastEvent(Number(room_id), BOT_EVENTS.ROOM_UPDATED, {
+        room_id: Number(room_id),
+        changes: newRoomInfo,
+        operator: { id: this.clientIdMap[client.id].user_id, user_nick },
+      })
+      .catch(() => {});
   }
 
   /**
@@ -378,13 +454,26 @@ export class WsChatGateway {
     const { createdAt } = message;
     const timeSpace = new Date(createdAt).getTime();
     const now = new Date().getTime();
-    if (now - timeSpace > 2 * 60 * 1000) return client.emit('tips', { code: -1, msg: '只能撤回两分钟内的消息！' });
+    // 动态撤回时间限制
+    const recallCfg = await this.permissionService.getPermissionConfig(user_id, PERM.CHAT_RECALL_OWN, room_id);
+    const recallTimeLimit = (recallCfg?.time_limit_sec ?? 120) * 1000;
+    if (now - timeSpace > recallTimeLimit)
+      return client.emit('tips', { code: -1, msg: `只能撤回${(recallCfg?.time_limit_sec ?? 120) / 60}分钟内的消息！` });
     await this.MessageModel.update({ id }, { message_status: -1 });
     this.socket.to(room_id).emit('recallMessage', {
       code: 1,
       id,
       msg: `${user_nick} 撤回了一条消息`,
     });
+
+    // Bot 事件: message.recalled
+    this.botService
+      .broadcastEvent(Number(room_id), BOT_EVENTS.MESSAGE_RECALLED, {
+        room_id: Number(room_id),
+        message_id: id,
+        user_info: { id: user_id, user_nick },
+      })
+      .catch(() => {});
   }
 
   /* >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 下面是方法、不属于客户端提交的事件 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< */
@@ -396,12 +485,10 @@ export class WsChatGateway {
   async handleKickUser(client: Socket, { target_user_id, reason = '' }) {
     const { user_id, room_id } = this.clientIdMap[client.id];
     const currentUser = await this.getUserInfoForClientId(client.id);
-    const { room_admin_info, on_line_user_list } = this.room_list_map[room_id];
+    const { _room_admin_info, on_line_user_list } = this.room_list_map[room_id];
 
-    const moderatorIds = await this.getRoomModeratorIds(room_id);
-    const effectiveRole = getEffectiveRole(currentUser.user_role, user_id, room_admin_info.id, moderatorIds);
-
-    if (!['super', 'admin', 'owner', 'moderator'].includes(effectiveRole)) {
+    // 动态权限检查：踢出用户
+    if (!(await this.permissionService.checkPermission(user_id, PERM.ROOM_KICK_USER, room_id, currentUser.user_role))) {
       return client.emit('tips', { code: -1, msg: '您没有权限踢出用户' });
     }
     if (target_user_id === user_id) {
@@ -413,10 +500,20 @@ export class WsChatGateway {
       return client.emit('tips', { code: -1, msg: '该用户不在房间内' });
     }
     if (['super', 'admin'].includes(targetUser.user_role)) {
-      return client.emit('tips', { code: -1, msg: '不能踢出管理员' });
+      // 通过角色等级比较：不能踢出同级或更高级别的用户
+      const operatorLevel = await this.permissionService.getUserMaxLevel(user_id, room_id, currentUser.user_role);
+      const targetLevel = await this.permissionService.getUserMaxLevel(target_user_id, room_id, targetUser.user_role);
+      if (targetLevel >= operatorLevel) {
+        return client.emit('tips', { code: -1, msg: '不能踢出同级或更高级别的用户' });
+      }
     }
-    if (effectiveRole === 'moderator' && target_user_id === room_admin_info.id) {
-      return client.emit('tips', { code: -1, msg: '房管不能踢出房主' });
+    if (target_user_id === _room_admin_info.id) {
+      // 如果目标是房主，只有角色等级高于房主的人才能踢出
+      const operatorLevel = await this.permissionService.getUserMaxLevel(user_id, room_id, currentUser.user_role);
+      const ownerLevel = await this.permissionService.getUserMaxLevel(_room_admin_info.id, room_id);
+      if (operatorLevel <= ownerLevel) {
+        return client.emit('tips', { code: -1, msg: '权限不足，无法踢出房主' });
+      }
     }
 
     let targetClientId = null;
@@ -439,6 +536,16 @@ export class WsChatGateway {
       message_type: 'info',
       message_content: `${targetUser.user_nick} 已被 ${currentUser.user_nick} 踢出房间`,
     });
+
+    // Bot 事件: member.kicked
+    this.botService
+      .broadcastEvent(Number(room_id), BOT_EVENTS.MEMBER_KICKED, {
+        room_id: Number(room_id),
+        target_user: { id: target_user_id, user_nick: targetUser.user_nick },
+        operator: { id: user_id, user_nick: currentUser.user_nick },
+        reason,
+      })
+      .catch(() => {});
   }
 
   /**
@@ -448,12 +555,12 @@ export class WsChatGateway {
   async handleDeleteMessage(client: Socket, { message_id }) {
     const { user_id, room_id } = this.clientIdMap[client.id];
     const currentUser = await this.getUserInfoForClientId(client.id);
-    const { room_admin_info } = this.room_list_map[room_id];
+    const { _room_admin_info } = this.room_list_map[room_id];
 
-    const moderatorIds = await this.getRoomModeratorIds(room_id);
-    const effectiveRole = getEffectiveRole(currentUser.user_role, user_id, room_admin_info.id, moderatorIds);
-
-    if (!['super', 'admin', 'owner', 'moderator'].includes(effectiveRole)) {
+    // 动态权限检查：删除他人消息
+    if (
+      !(await this.permissionService.checkPermission(user_id, PERM.CHAT_RECALL_ANY, room_id, currentUser.user_role))
+    ) {
       return client.emit('tips', { code: -1, msg: '您没有权限删除消息' });
     }
 
@@ -469,6 +576,15 @@ export class WsChatGateway {
       id: message_id,
       msg: `${currentUser.user_nick} 删除了一条消息`,
     });
+
+    // Bot 事件: message.deleted
+    this.botService
+      .broadcastEvent(Number(room_id), BOT_EVENTS.MESSAGE_DELETED, {
+        room_id: Number(room_id),
+        message_id,
+        operator: { id: user_id, user_nick: currentUser.user_nick },
+      })
+      .catch(() => {});
   }
 
   /**
@@ -531,6 +647,15 @@ export class WsChatGateway {
         musicInfo: { music_info, music_src, music_lrc, music_queue_list },
         msg: `正在播放${user_info ? user_info.user_nick : '系统随机'}点播的 ${music_name} - ${music_singer}`,
       });
+
+      // Bot 事件: music.started
+      this.botService
+        .broadcastEvent(Number(room_id), BOT_EVENTS.MUSIC_STARTED, {
+          room_id: Number(room_id),
+          music_info: { music_name, music_singer, music_mid: mid, source },
+          duration: music_info.music_duration,
+        })
+        .catch(() => {});
       const { music_duration } = music_info;
       clearTimeout(this.timerList[`timer${room_id}`]);
       /* 设置一个定时器 以歌曲时长为准 歌曲到时间后自动切歌 */
@@ -710,11 +835,16 @@ export class WsChatGateway {
           select: ['room_password'],
         });
 
-        // 房主和管理员可以直接进入自己的房间
+        // 房主和有免密权限的用户可以直接进入
         const isRoomOwner = room_info.room_user_id === user_id;
-        const isAdmin = ['super', 'admin'].includes(u.user_role);
+        const canBypass = await this.permissionService.checkPermission(
+          user_id,
+          PERM.ROOM_BYPASS_PASSWORD,
+          room_id,
+          u.user_role,
+        );
 
-        if (!isRoomOwner && !isAdmin) {
+        if (!isRoomOwner && !canBypass) {
           if (!inputPassword) {
             client.emit('roomPasswordRequired', {
               code: -4,
@@ -764,6 +894,15 @@ export class WsChatGateway {
       const data: any = { room_list: formatRoomlist(this.room_list_map) };
       !isHasRoom && (data.msg = `${user_nick}的房间[${room_info.room_name}]有新用户加入已成功开启`);
       this.socket.emit('updateRoomlist', data);
+
+      // Bot 事件: member.joined
+      this.botService
+        .broadcastEvent(Number(room_id), BOT_EVENTS.MEMBER_JOINED, {
+          room_id: Number(room_id),
+          user_info: { id: user_id, user_nick, user_avatar: userInfo.user_avatar },
+          online_count: this.room_list_map[room_id]?.on_line_user_list?.length || 0,
+        })
+        .catch(() => {});
     } catch (error) {}
   }
 

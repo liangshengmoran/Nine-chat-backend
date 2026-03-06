@@ -8,6 +8,7 @@ import { BotEntity } from './bot.entity';
 import { BotManagerEntity } from './bot-manager.entity';
 import { BotUpdateEntity } from './bot-update.entity';
 import { BotScheduledMessageEntity } from './bot-scheduled-message.entity';
+import { WebhookLogEntity } from './webhook-log.entity';
 import { MessageEntity } from '../chat/message.entity';
 import { RoomEntity } from '../chat/room.entity';
 import {
@@ -49,6 +50,8 @@ export class BotService {
     private readonly BotUpdateModel: Repository<BotUpdateEntity>,
     @InjectRepository(BotScheduledMessageEntity)
     private readonly BotScheduledMessageModel: Repository<BotScheduledMessageEntity>,
+    @InjectRepository(WebhookLogEntity)
+    private readonly WebhookLogModel: Repository<WebhookLogEntity>,
     @Inject(forwardRef(() => WsChatGateway))
     private readonly chatGateway: WsChatGateway,
     @Inject(forwardRef(() => AdminService))
@@ -922,56 +925,261 @@ export class BotService {
     await this.BotModel.softDelete(botId);
   }
 
+  // ==================== 事件广播系统 ====================
+
   /**
-   * Webhook 推送消息
+   * 统一事件广播入口
+   * 根据房间 + 事件类型筛选符合条件的 Bot，分别走 Webhook 或 getUpdates 队列
    */
-  async pushWebhook(bot: BotEntity, event: string, data: any): Promise<void> {
-    if (!bot.webhook_url) return;
+  async broadcastEvent(roomId: number | null, event: string, data: any): Promise<void> {
+    try {
+      const bots = await this.getEligibleBots(roomId, event);
+      for (const bot of bots) {
+        if (bot.webhook_url) {
+          this.pushWebhookWithRetry(bot, event, data, 1).catch(() => {});
+        } else {
+          this.queueUpdateDirect(bot.id, event, data).catch(() => {});
+        }
+      }
+    } catch (e) {
+      // 事件广播失败不影响正常业务
+    }
+  }
+
+  /**
+   * 按房间 + 事件订阅过滤符合条件的 Bot
+   */
+  private async getEligibleBots(roomId: number | null, event: string): Promise<BotEntity[]> {
+    const bots = await this.BotModel.find({
+      where: { status: 1, approval_status: 'approved' as any },
+    });
+
+    return bots.filter((bot) => {
+      // 1. 房间访问权限检查
+      if (roomId !== null && bot.allowed_rooms) {
+        const allowedRooms = String(bot.allowed_rooms)
+          .split(',')
+          .map(Number)
+          .filter((n) => !isNaN(n));
+        if (allowedRooms.length > 0 && !allowedRooms.includes(roomId)) return false;
+      }
+
+      // 2. 事件订阅检查
+      if (bot.subscribed_events !== null && bot.subscribed_events !== undefined) {
+        if (!Array.isArray(bot.subscribed_events) || !bot.subscribed_events.includes(event)) return false;
+      }
+      // subscribed_events 为 null 表示订阅所有事件
+
+      return true;
+    });
+  }
+
+  /**
+   * Webhook 推送（带重试）
+   * 尝试1: 立即  尝试2: 10秒后  尝试3: 60秒后
+   * 全部失败: 降级写入 getUpdates 队列
+   */
+  private async pushWebhookWithRetry(bot: BotEntity, event: string, data: any, attempt: number): Promise<void> {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [0, 10_000, 60_000];
+
+    const payload = {
+      event,
+      data,
+      timestamp: Date.now(),
+      bot_id: bot.id,
+    };
+
+    const signature = crypto
+      .createHmac('sha256', bot.webhook_secret || '')
+      .update(JSON.stringify(payload))
+      .digest('hex');
 
     try {
-      const payload = {
-        event,
-        data,
-        timestamp: Date.now(),
-        bot_id: bot.id,
-      };
-
-      const signature = crypto
-        .createHmac('sha256', bot.webhook_secret || '')
-        .update(JSON.stringify(payload))
-        .digest('hex');
-
-      await axios.post(bot.webhook_url, payload, {
+      const response = await axios.post(bot.webhook_url, payload, {
         headers: {
           'Content-Type': 'application/json',
           'X-Bot-Signature': signature,
+          'X-Bot-Event': event,
         },
         timeout: 5000,
       });
+
+      // 记录成功日志
+      this.logWebhookDelivery(bot.id, event, data, response.status, attempt, true).catch(() => {});
 
       // 更新 webhook 状态为正常
       if (bot.webhook_status !== 1) {
         await this.BotModel.update(bot.id, { webhook_status: 1 });
       }
     } catch (error) {
-      // 更新 webhook 状态为失败
-      await this.BotModel.update(bot.id, { webhook_status: -1 });
+      const statusCode = error.response?.status || 0;
+      const errorMsg = error.message?.substring(0, 200) || 'Unknown error';
+
+      // 记录失败日志
+      this.logWebhookDelivery(bot.id, event, data, statusCode, attempt, false, errorMsg).catch(() => {});
+
+      if (attempt < MAX_RETRIES) {
+        // 重试
+        setTimeout(() => this.pushWebhookWithRetry(bot, event, data, attempt + 1), RETRY_DELAYS[attempt]);
+      } else {
+        // 全部失败，降级写入 getUpdates 队列
+        await this.queueUpdateDirect(bot.id, event, { ...data, _webhook_fallback: true });
+        await this.BotModel.update(bot.id, { webhook_status: -1 });
+      }
     }
   }
 
   /**
-   * 获取房间中配置了 Webhook 的 Bot 列表
+   * 直接写入 getUpdates 队列（不检查 webhook 状态）
    */
-  async getWebhookBots(roomId: number): Promise<BotEntity[]> {
-    const bots = await this.BotModel.find({
-      where: { status: 1 },
+  private async queueUpdateDirect(botId: number, updateType: string, payload: any): Promise<void> {
+    const update = new BotUpdateEntity();
+    update.bot_id = botId;
+    update.update_type = updateType;
+    update.payload = payload;
+    update.consumed = false;
+    await this.BotUpdateModel.save(update);
+  }
+
+  /**
+   * 记录 Webhook 投递日志
+   */
+  private async logWebhookDelivery(
+    botId: number,
+    event: string,
+    data: any,
+    statusCode: number,
+    attempt: number,
+    success: boolean,
+    errorMessage?: string,
+  ): Promise<void> {
+    const log = new WebhookLogEntity();
+    log.bot_id = botId;
+    log.event = event;
+    log.payload = typeof data === 'object' ? JSON.stringify(data).substring(0, 2000) : data;
+    log.status_code = statusCode;
+    log.attempt = attempt;
+    log.success = success;
+    log.error_message = errorMessage?.substring(0, 500) || null;
+    await this.WebhookLogModel.save(log);
+  }
+
+  /**
+   * 获取 Webhook 投递日志
+   */
+  async getWebhookLogs(botId: number, limit = 50): Promise<WebhookLogEntity[]> {
+    return this.WebhookLogModel.find({
+      where: { bot_id: botId },
+      order: { id: 'DESC' },
+      take: limit,
+    });
+  }
+
+  /**
+   * 测试 Webhook 连通性
+   */
+  async testWebhook(bot: BotEntity): Promise<any> {
+    if (!bot.webhook_url) {
+      throw new HttpException('未配置Webhook URL', HttpStatus.BAD_REQUEST);
+    }
+
+    const payload = {
+      event: 'webhook.test',
+      data: { message: 'This is a test ping from Nine-Chat Bot API' },
+      timestamp: Date.now(),
+      bot_id: bot.id,
+    };
+
+    const signature = crypto
+      .createHmac('sha256', bot.webhook_secret || '')
+      .update(JSON.stringify(payload))
+      .digest('hex');
+
+    try {
+      const response = await axios.post(bot.webhook_url, payload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Bot-Signature': signature,
+          'X-Bot-Event': 'webhook.test',
+        },
+        timeout: 10000,
+      });
+
+      await this.BotModel.update(bot.id, { webhook_status: 1 });
+      return {
+        success: true,
+        status_code: response.status,
+        response_time_ms: Date.now() - payload.timestamp,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        status_code: error.response?.status || 0,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * 获取 Webhook 投递统计
+   */
+  async getWebhookStats(botId: number): Promise<any> {
+    const now = new Date();
+    const h24 = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const _d7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [_total24h, _success24h] = await Promise.all([
+      this.WebhookLogModel.count({ where: { bot_id: botId, createdAt: new Date(h24.getTime()) as any } }),
+      this.WebhookLogModel.count({
+        where: { bot_id: botId, success: true, createdAt: new Date(h24.getTime()) as any },
+      }),
+    ]);
+
+    // 简化统计：取最近50条记录计算成功率
+    const recentLogs = await this.WebhookLogModel.find({
+      where: { bot_id: botId },
+      order: { id: 'DESC' },
+      take: 50,
     });
 
-    return bots.filter((bot) => {
-      if (!bot.webhook_url) return false;
-      if (!bot.allowed_rooms) return true;
-      return bot.allowed_rooms.split(',').map(Number).includes(roomId);
-    });
+    const totalRecent = recentLogs.length;
+    const successRecent = recentLogs.filter((l) => l.success).length;
+
+    return {
+      recent_success_rate: totalRecent > 0 ? Math.round((successRecent / totalRecent) * 100) : 100,
+      recent_total: totalRecent,
+      recent_success: successRecent,
+      recent_failed: totalRecent - successRecent,
+    };
+  }
+
+  /**
+   * 设置 Bot 事件订阅
+   */
+  async setSubscriptions(bot: BotEntity, events: string[] | null): Promise<any> {
+    if (events !== null) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { getAllEventKeys } = require('src/common/constants/bot-events');
+      const validKeys = getAllEventKeys();
+      const invalid = events.filter((e) => !validKeys.includes(e));
+      if (invalid.length > 0) {
+        throw new HttpException(`无效的事件类型: ${invalid.join(', ')}`, HttpStatus.BAD_REQUEST);
+      }
+    }
+
+    await this.BotModel.update(bot.id, { subscribed_events: events });
+    return { success: true, subscribed_events: events };
+  }
+
+  /**
+   * 获取 Bot 当前事件订阅
+   */
+  async getSubscriptions(bot: BotEntity): Promise<any> {
+    return {
+      subscribed_events: bot.subscribed_events,
+      is_all: bot.subscribed_events === null,
+    };
   }
 
   // ==================== Admin 管理方法 ====================
@@ -1232,5 +1440,146 @@ export class BotService {
     }
 
     return { hasAccess: false, role: null };
+  }
+
+  // ==================== 沙箱模式 ====================
+
+  /**
+   * 根据 ID 获取 Bot（用于需要用户认证而非 Bot Token 的端点）
+   */
+  async validateBotById(botId: number): Promise<BotEntity> {
+    const bot = await this.BotModel.findOne({ where: { id: botId } });
+    if (!bot) {
+      throw new HttpException('Bot不存在', HttpStatus.NOT_FOUND);
+    }
+    return bot;
+  }
+
+  /**
+   * 启用沙箱模式
+   * 创建专属测试房间，Bot 免审批立即可用
+   */
+  async enableSandbox(bot: BotEntity, ownerId: number): Promise<any> {
+    if (bot.owner_id !== ownerId) {
+      throw new HttpException('只有 Bot Owner 才能启用沙箱模式', HttpStatus.FORBIDDEN);
+    }
+    if (bot.sandbox_mode) {
+      return {
+        success: true,
+        message: '沙箱模式已启用',
+        sandbox_room_id: bot.sandbox_room_id,
+      };
+    }
+
+    // 创建测试房间
+    const sandboxRoom = new (this.RoomModel.target as any)();
+    sandboxRoom.room_name = `🧪 ${bot.bot_name} 的测试房间`;
+    sandboxRoom.room_user_id = ownerId;
+    sandboxRoom.room_need_password = 1;
+    sandboxRoom.room_notice = `此房间为 Bot [${bot.bot_name}] 的沙箱测试房间，仅 Owner 和 Bot Manager 可见。`;
+    sandboxRoom.room_status = 2; // 2=隐藏（不出现在公开房间列表）
+
+    const savedRoom = await this.RoomModel.save(sandboxRoom);
+
+    // 更新 Bot 状态
+    await this.BotModel.update(bot.id, {
+      sandbox_mode: true,
+      sandbox_room_id: savedRoom.room_id || (savedRoom as any).id,
+      // 沙箱模式免审批
+      approval_status: 'approved' as any,
+      status: 1,
+    });
+
+    // 设置 Bot 只能访问沙箱房间
+    await this.BotModel.update(bot.id, {
+      allowed_rooms: String(savedRoom.room_id || (savedRoom as any).id),
+    });
+
+    return {
+      success: true,
+      sandbox_room_id: savedRoom.room_id || (savedRoom as any).id,
+      message: '沙箱模式已启用，测试房间已创建',
+    };
+  }
+
+  /**
+   * 模拟事件（沙箱模式专用）
+   * 触发指定类型的事件给 Bot，用于调试
+   */
+  async simulateEvent(bot: BotEntity, event: string, data: any): Promise<any> {
+    if (!bot.sandbox_mode) {
+      throw new HttpException('仅沙箱模式的 Bot 可以模拟事件', HttpStatus.FORBIDDEN);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { isValidEventKey } = require('src/common/constants/bot-events');
+    if (!isValidEventKey(event)) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { getAllEventKeys } = require('src/common/constants/bot-events');
+      throw new HttpException(
+        `无效的事件类型: ${event}。可用类型: ${getAllEventKeys().join(', ')}`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const roomId = bot.sandbox_room_id || 0;
+    const payload = { room_id: roomId, ...data, _simulated: true };
+
+    if (bot.webhook_url) {
+      await this.pushWebhookWithRetry(bot, event, payload, 1);
+    } else {
+      await this.queueUpdateDirect(bot.id, event, payload);
+    }
+
+    return { success: true, event, simulated_data: payload };
+  }
+
+  /**
+   * 沙箱内置 Echo 回显（无需外部服务器即可调试）
+   */
+  async sandboxEcho(bot: BotEntity, message: string): Promise<any> {
+    if (!bot.sandbox_mode) {
+      throw new HttpException('仅沙箱模式可用', HttpStatus.FORBIDDEN);
+    }
+
+    const roomId = bot.sandbox_room_id;
+    if (!roomId) {
+      throw new HttpException('沙箱房间未创建', HttpStatus.BAD_REQUEST);
+    }
+
+    // 在沙箱房间中发送回显消息
+    const echoMessage = new MessageEntity();
+    echoMessage.user_id = -bot.id;
+    echoMessage.room_id = roomId;
+    echoMessage.message_type = 'text';
+    echoMessage.message_content = JSON.stringify({ text: `[Echo] ${message}` });
+    echoMessage.message_status = 1;
+    const saved = await this.MessageModel.save(echoMessage);
+
+    return { success: true, message_id: saved.id, echo: message };
+  }
+
+  /**
+   * 一键转正：关闭沙箱模式，进入正式审批流程
+   */
+  async promoteSandbox(bot: BotEntity, ownerId: number): Promise<any> {
+    if (bot.owner_id !== ownerId) {
+      throw new HttpException('只有 Bot Owner 才能操作', HttpStatus.FORBIDDEN);
+    }
+    if (!bot.sandbox_mode) {
+      throw new HttpException('Bot 不在沙箱模式中', HttpStatus.BAD_REQUEST);
+    }
+
+    await this.BotModel.update(bot.id, {
+      sandbox_mode: false,
+      approval_status: 'pending' as any,
+      allowed_rooms: null, // 移除沙箱房间限制
+    });
+
+    return {
+      success: true,
+      message: 'Bot 已退出沙箱模式，进入正式审批流程',
+      approval_status: 'pending',
+    };
   }
 }

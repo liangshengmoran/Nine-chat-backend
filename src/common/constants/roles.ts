@@ -97,69 +97,49 @@ export function getEffectiveRole(
 }
 
 /**
- * 检查用户是否可以管理房间（切歌、移除歌曲等）
- * @param effectiveRole 有效角色
- * @returns 是否可以管理房间
+ * @deprecated 请使用 PermissionService.checkPermission() 替代
  */
 export function canManageRoom(effectiveRole: string): boolean {
   return hasPermission(effectiveRole, UserRole.MODERATOR);
 }
 
 /**
- * 检查用户是否是系统管理员（super 或 admin）
- * @param role 用户角色
- * @returns 是否是系统管理员
+ * @deprecated 请使用 PermissionService.getUserPermissions() 检查 admin.* 权限替代
  */
 export function isSystemAdmin(role: string): boolean {
   return [UserRole.SUPER, UserRole.ADMIN].includes(role as UserRole);
 }
 
 /**
- * 检查用户是否可以点歌
- * @param effectiveRole 有效角色
- * @returns 是否可以点歌
+ * @deprecated 请使用 PermissionService.checkPermission(userId, 'music.choose', roomId) 替代
  */
 export function canChooseMusic(effectiveRole: string): boolean {
   return hasPermission(effectiveRole, UserRole.USER);
 }
 
 /**
- * 获取点歌冷却时间（秒）
- * @param effectiveRole 有效角色
- * @returns 冷却时间，0表示无限制，-1表示禁止
+ * @deprecated 请使用 PermissionService.getPermissionConfig(userId, 'music.choose', roomId) 获取 cooldown_sec 替代
  */
 export function getMusicCooldown(effectiveRole: string): number {
-  if (hasPermission(effectiveRole, UserRole.MODERATOR)) return 0; // 无限制
-  if (effectiveRole === UserRole.USER) return 8; // 8秒冷却
-  return -1; // 游客禁止点歌
+  if (hasPermission(effectiveRole, UserRole.MODERATOR)) return 0;
+  if (effectiveRole === UserRole.USER) return 8;
+  return -1;
 }
 
 /**
- * 检查用户是否可以切歌
- * @param effectiveRole 有效角色
- * @param userId 用户ID
- * @param chooserId 点歌人ID
- * @returns 是否可以切歌
+ * @deprecated 请使用 PermissionService.checkPermission(userId, 'music.cut_any'/'music.cut_own', roomId) 替代
  */
 export function canCutMusic(effectiveRole: string, userId: number, chooserId: number): boolean {
-  // 管理员和房主可以切任何歌
   if (hasPermission(effectiveRole, UserRole.OWNER)) return true;
-  // 点歌人可以切自己点的歌
   if (userId === chooserId) return true;
   return false;
 }
 
 /**
- * 检查用户是否可以移除歌单中的歌曲
- * @param effectiveRole 有效角色
- * @param userId 用户ID
- * @param chooserId 点歌人ID
- * @returns 是否可以移除
+ * @deprecated 请使用 PermissionService.checkPermission(userId, 'music.remove_any'/'music.remove_own', roomId) 替代
  */
 export function canRemoveMusic(effectiveRole: string, userId: number, chooserId: number): boolean {
-  // 房间管理员及以上可以移除任何歌曲
   if (hasPermission(effectiveRole, UserRole.MODERATOR)) return true;
-  // 点歌人可以移除自己点的歌
   if (userId === chooserId) return true;
   return false;
 }

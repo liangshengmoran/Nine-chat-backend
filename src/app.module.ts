@@ -11,13 +11,25 @@ import { join } from 'path';
 import { UploadModule } from './modules/upload/upload.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { BotModule } from './modules/bot/bot.module';
+import { PermissionModule } from './common/permission.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '../../', 'public'),
-    }),
+    ServeStaticModule.forRoot(
+      {
+        rootPath: join(__dirname, '../../', 'docs-site'),
+        serveRoot: '/docs-site',
+        serveStaticOptions: {
+          index: ['index.html'],
+          redirect: false,
+        },
+      },
+      {
+        rootPath: join(__dirname, '../../', 'public'),
+        exclude: ['/api*', '/docs-site*', '/docs*'],
+      },
+    ),
     ConfigModule.load(resolve(__dirname, 'config', '**/!(*.d).{ts,js}')),
     TypeOrmModule.forRootAsync({
       useFactory: (config: ConfigService) => config.get('database'),
@@ -29,6 +41,7 @@ import { BotModule } from './modules/bot/bot.module';
     UploadModule,
     AdminModule,
     BotModule,
+    PermissionModule,
   ],
   controllers: [],
   providers: [],

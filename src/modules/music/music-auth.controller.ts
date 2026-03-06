@@ -5,7 +5,7 @@ import { Repository } from 'typeorm';
 import { HttpException, HttpStatus } from '@nestjs/common';
 import axios from 'axios';
 import { RoomMusicAuthEntity } from '../chat/room-music-auth.entity';
-import { MusicAuthCookieDto, MusicAuthRevokeDto, MusicAuthQrCheckDto } from './dto/music-auth.dto';
+import { MusicAuthCookieDto, MusicAuthRevokeDto } from './dto/music-auth.dto';
 
 const KUGOU_API_BASE = process.env.KUGOU_API_BASE || 'https://ku-gou-music-api.qyjm.eu.org';
 const NETEASE_API_BASE = process.env.NETEASE_API_BASE || 'https://netease-music-api.qyjm.eu.org';

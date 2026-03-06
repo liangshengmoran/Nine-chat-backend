@@ -1375,4 +1375,547 @@ export class AdminController {
   cleanupExpiredData() {
     return this.AdminService.cleanupExpiredData();
   }
+
+  // ==================== 动态权限管理 (RBAC) ====================
+
+  @Get('/roles')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '获取角色列表',
+    description: `获取系统中所有角色列表（含内置角色和自定义角色）。
+
+**内置角色（不可删除）：**
+| role_key | 名称 | 等级 |
+|----------|------|------|
+| guest | 游客 | 0 |
+| bot | 机器人 | 1 |
+| user | 普通用户 | 1 |
+| moderator | 房间管理员 | 2 |
+| owner | 房主 | 3 |
+| admin | 管理员 | 4 |
+| super | 超级管理员 | 5 |
+
+**返回内容：**
+- 角色列表按等级升序排列
+- 每个角色包含：id, role_key, role_name, role_color, role_level, is_system, description, status`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              role_key: 'guest',
+              role_name: '游客',
+              role_color: '#cccccc',
+              role_level: 0,
+              is_system: true,
+              description: '游客 - 仅限浏览',
+              status: 1,
+            },
+            {
+              id: 3,
+              role_key: 'user',
+              role_name: '用户',
+              role_color: '#999999',
+              role_level: 1,
+              is_system: true,
+              description: '普通用户',
+              status: 1,
+            },
+            {
+              id: 8,
+              role_key: 'vip',
+              role_name: 'VIP用户',
+              role_color: '#e74c3c',
+              role_level: 1,
+              is_system: false,
+              description: 'VIP会员 - 享受更短冷却时间',
+              status: 1,
+            },
+          ],
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
+  getRoles() {
+    return this.AdminService.getRoles();
+  }
+
+  @Post('/roles')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '创建自定义角色',
+    description: `创建一个新的自定义角色。创建后需要通过"批量更新角色权限"接口为其分配权限。
+
+**请求参数：**
+- \`role_key\`: 角色标识符（唯一，只允许小写字母和下划线，如 \`vip\`、\`trial_admin\`）
+- \`role_name\`: 显示名称（如 "VIP用户"）
+- \`role_color\`: 显示颜色（如 "#e74c3c"，可选，默认 #999999）
+- \`role_level\`: 角色等级（数值越高权限越大，用于"不能操作同级或更高级别用户"的判断）
+- \`description\`: 角色描述（可选）
+
+**使用示例：**
+创建一个"VIP用户"角色：
+\`\`\`json
+{
+  "role_key": "vip",
+  "role_name": "VIP用户",
+  "role_color": "#e74c3c",
+  "role_level": 1,
+  "description": "VIP会员 - 享受更短冷却时间和更长消息上限"
+}
+\`\`\`
+
+创建一个"公告编辑员"角色：
+\`\`\`json
+{
+  "role_key": "announcement_editor",
+  "role_name": "公告编辑员",
+  "role_color": "#3498db",
+  "role_level": 2,
+  "description": "仅可管理系统公告"
+}
+\`\`\`
+
+**注意：**
+- role_key 必须唯一，不能与已有角色重复
+- 新角色默认没有任何权限，需要手动分配
+- is_system 自动设为 false（自定义角色可删除）`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '创建成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          id: 8,
+          role_key: 'vip',
+          role_name: 'VIP用户',
+          role_color: '#e74c3c',
+          role_level: 1,
+          is_system: false,
+          description: 'VIP会员',
+          status: 1,
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: '角色标识符已存在' })
+  createRole(@Body() params) {
+    return this.AdminService.createRole(params);
+  }
+
+  @Post('/roles/update')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '更新角色信息',
+    description: `更新角色的显示信息。
+
+**请求参数：**
+- \`id\`: 角色ID（必填）
+- \`role_name\`: 新的显示名称（可选）
+- \`role_color\`: 新的显示颜色（可选）
+- \`role_level\`: 新的角色等级（可选）
+- \`description\`: 新的描述（可选）
+- \`status\`: 状态 1-启用 0-禁用（可选）
+
+**使用示例：**
+\`\`\`json
+{
+  "id": 8,
+  "role_name": "超级VIP用户",
+  "role_color": "#ff6b6b",
+  "description": "超级VIP - 无冷却时间"
+}
+\`\`\`
+
+**注意：**
+- 系统内置角色不允许修改 role_key
+- 修改后会自动清除所有权限缓存`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '更新成功',
+    schema: { example: { code: 200, data: { success: true }, success: true, message: '请求成功' } },
+  })
+  @ApiResponse({ status: 404, description: '角色不存在' })
+  updateRoleInfo(@Body() params) {
+    return this.AdminService.updateRole(params);
+  }
+
+  @Post('/roles/delete/:id')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '删除自定义角色',
+    description: `删除一个自定义角色。
+
+**业务规则：**
+- 系统内置角色（is_system=true）不可删除
+- 删除角色会同时删除：
+  - 该角色的所有权限绑定（tb_role_permission）
+  - 该角色的所有用户绑定（tb_user_role）
+- 已被分配此角色的用户将失去该角色的所有权限
+- 操作不可恢复
+
+**注意：** 删除前请确认没有用户正在依赖此角色的权限。`,
+  })
+  @ApiParam({ name: 'id', description: '角色ID', example: 8 })
+  @ApiResponse({
+    status: 200,
+    description: '删除成功',
+    schema: { example: { code: 200, data: { success: true }, success: true, message: '请求成功' } },
+  })
+  @ApiResponse({ status: 403, description: '不能删除系统内置角色' })
+  @ApiResponse({ status: 404, description: '角色不存在' })
+  deleteRole(@Param('id') id: number) {
+    return this.AdminService.deleteRole(Number(id));
+  }
+
+  @Get('/permissions')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '获取所有权限项列表',
+    description: `获取系统中定义的所有权限项（共 7 组 45 项）。
+
+**权限分组：**
+| 分组 | 数量 | 作用域 | 说明 |
+|------|------|--------|------|
+| chat | 10 | room | 聊天相关权限 |
+| music | 8 | room | 音乐相关权限 |
+| room | 11 | room | 房间管理权限 |
+| user | 5 | global | 用户管理权限 |
+| bot | 5 | global | Bot管理权限 |
+| admin | 11 | global | 后台管理权限 |
+| system | 3 | global | 系统最高权限 |
+
+**返回格式：**
+- \`list\`: 所有权限项的平铺列表
+- \`grouped\`: 按 perm_group 分组的权限项
+
+**可配置参数的权限项：**
+部分权限项有 config_schema，表示可以为不同角色设置不同的参数值：
+- \`chat.send_text\`: \`{ max_length: 500 }\` 消息长度上限
+- \`chat.send_image\`: \`{ max_size_kb: 5120 }\` 图片大小上限
+- \`chat.recall_own\`: \`{ time_limit_sec: 120 }\` 撤回时间限制
+- \`music.choose\`: \`{ cooldown_sec: 8 }\` 点歌冷却时间
+- \`chat.view_history\`: \`{ max_pages: -1 }\` 历史消息页数限制(-1=无限)`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              perm_key: 'chat.send_text',
+              perm_name: '发送文本消息',
+              perm_group: 'chat',
+              description: '允许发送文字消息',
+              scope_type: 'room',
+              config_schema: { max_length: 500 },
+            },
+            {
+              id: 11,
+              perm_key: 'music.choose',
+              perm_name: '点歌',
+              perm_group: 'music',
+              description: '允许在房间内点歌',
+              scope_type: 'room',
+              config_schema: { cooldown_sec: 8 },
+            },
+          ],
+          grouped: {
+            chat: ['...10 items'],
+            music: ['...8 items'],
+            room: ['...11 items'],
+            user: ['...5 items'],
+            bot: ['...5 items'],
+            admin: ['...11 items'],
+            system: ['...3 items'],
+          },
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
+  getPermissions() {
+    return this.AdminService.getPermissions();
+  }
+
+  @Get('/roles/:id/permissions')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '获取角色的权限配置',
+    description: `获取指定角色已绑定的权限列表及其配置参数。
+
+**返回内容：**
+每条记录包含：
+- \`role_id\`: 角色ID
+- \`permission_id\`: 权限项ID
+- \`scope_value\`: 作用域（\`*\` = 所有房间，具体数字 = 指定房间ID）
+- \`config\`: 配置参数（如 \`{ "cooldown_sec": 3 }\`）
+- \`status\`: 1-启用 0-禁用
+- \`permission\`: 关联的权限项详情
+
+**使用场景：**
+在管理后台的"角色权限配置"页面，加载角色当前的权限勾选状态和配置参数。`,
+  })
+  @ApiParam({ name: 'id', description: '角色ID', example: 3 })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 1,
+              role_id: 3,
+              permission_id: 1,
+              scope_value: '*',
+              config: { max_length: 500 },
+              status: 1,
+              permission: {
+                id: 1,
+                perm_key: 'chat.send_text',
+                perm_name: '发送文本消息',
+                perm_group: 'chat',
+                scope_type: 'room',
+              },
+            },
+            {
+              id: 5,
+              role_id: 3,
+              permission_id: 11,
+              scope_value: '*',
+              config: { cooldown_sec: 8 },
+              status: 1,
+              permission: {
+                id: 11,
+                perm_key: 'music.choose',
+                perm_name: '点歌',
+                perm_group: 'music',
+                scope_type: 'room',
+              },
+            },
+          ],
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
+  getRolePermissions(@Param('id') id: number) {
+    return this.AdminService.getRolePermissions(Number(id));
+  }
+
+  @Post('/roles/:id/permissions')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '批量更新角色权限',
+    description: `像搭积木一样为角色勾选/取消具体的操作权限，支持设置每个权限的配置参数。
+
+**请求参数：**
+\`\`\`json
+{
+  "permissions": [
+    {
+      "permission_id": 11,
+      "scope_value": "*",
+      "config": { "cooldown_sec": 3 },
+      "enabled": true
+    },
+    {
+      "permission_id": 29,
+      "scope_value": "*",
+      "config": null,
+      "enabled": false
+    }
+  ]
+}
+\`\`\`
+
+**字段说明：**
+- \`permission_id\`: 权限项ID（从 GET /admin/permissions 获取）
+- \`scope_value\`: 作用域值
+  - \`"*"\` = 对所有房间生效（默认值）
+  - \`"888"\` = 仅对房间ID为888的房间生效
+- \`config\`: 配置参数（可选，仅针对有 config_schema 的权限项）
+  - 例如为VIP设置更短的点歌冷却：\`{ "cooldown_sec": 3 }\`
+  - 例如为VIP设置更长的消息上限：\`{ "max_length": 2000 }\`
+- \`enabled\`: true=启用此权限，false=禁用此权限
+
+**典型用法1 - 创建VIP角色：**
+先用 POST /admin/roles 创建VIP角色，然后用本接口分配权限：
+\`\`\`json
+{
+  "permissions": [
+    { "permission_id": 1, "enabled": true, "config": { "max_length": 2000 } },
+    { "permission_id": 11, "enabled": true, "config": { "cooldown_sec": 3 } },
+    { "permission_id": 7, "enabled": true, "config": { "time_limit_sec": 300 } }
+  ]
+}
+\`\`\`
+
+**典型用法2 - 创建公告编辑员角色：**
+只给 admin.manage_announcements 权限：
+\`\`\`json
+{
+  "permissions": [
+    { "permission_id": 45, "enabled": true }
+  ]
+}
+\`\`\`
+其中 permission_id=45 对应 \`admin.manage_announcements\`（实际ID以 GET /admin/permissions 返回为准）
+
+**注意：**
+- 更新后会自动清除所有用户的权限缓存
+- 未提及的权限项不受影响（只更新传入的条目）`,
+  })
+  @ApiParam({ name: 'id', description: '角色ID', example: 8 })
+  @ApiResponse({
+    status: 200,
+    description: '更新成功',
+    schema: { example: { code: 200, data: { success: true }, success: true, message: '请求成功' } },
+  })
+  @ApiResponse({ status: 404, description: '角色不存在' })
+  updateRolePermissions(@Param('id') id: number, @Body() params) {
+    return this.AdminService.updateRolePermissions(Number(id), params);
+  }
+
+  @Get('/users/:id/roles')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '获取用户角色列表',
+    description: `获取指定用户当前拥有的角色列表。
+
+**返回内容：**
+每条记录包含：
+- 角色基本信息（role_key, role_name, role_color, role_level 等）
+- \`scope_value\`: 角色作用域（\`*\` = 全局生效，房间ID = 仅在该房间生效）
+- \`assigned_by\`: 分配者用户ID
+- \`source\`: 角色来源
+  - \`"dynamic"\`: 通过 RBAC 系统动态分配的角色
+  - \`"default"\`: 从用户表 user_role 字段回退的默认角色
+
+**业务逻辑：**
+- 如果用户在 tb_user_role 表中有动态分配的角色，返回这些角色
+- 如果没有动态角色，回退到 user_role 字段映射的内置角色
+- 用户可以同时拥有多个角色，最终权限 = 所有角色权限的并集`,
+  })
+  @ApiParam({ name: 'id', description: '用户ID', example: 1 })
+  @ApiResponse({
+    status: 200,
+    description: '获取成功',
+    schema: {
+      example: {
+        code: 200,
+        data: {
+          list: [
+            {
+              id: 3,
+              role_key: 'user',
+              role_name: '用户',
+              role_color: '#999999',
+              role_level: 1,
+              scope_value: '*',
+              source: 'default',
+            },
+          ],
+        },
+        success: true,
+        message: '请求成功',
+      },
+    },
+  })
+  getUserRoles(@Param('id') id: number) {
+    return this.AdminService.getUserRoles(Number(id));
+  }
+
+  @Post('/users/:id/roles')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '给用户分配角色',
+    description: `将指定角色分配给用户。用户可以同时拥有多个角色，最终权限取所有角色权限的并集。
+
+**请求参数：**
+- \`role_id\`: 要分配的角色ID（必填，从 GET /admin/roles 获取）
+- \`scope_value\`: 作用域值（可选）
+  - \`"*"\` = 全局生效（默认值，用于系统级角色如 admin、vip）
+  - \`"888"\` = 仅在房间ID为888的房间内生效（用于房间级角色如 moderator）
+
+**使用示例1 - 给用户分配VIP角色（全局）：**
+\`\`\`json
+{ "role_id": 8 }
+\`\`\`
+
+**使用示例2 - 给用户分配房管角色（指定房间）：**
+\`\`\`json
+{ "role_id": 4, "scope_value": "888" }
+\`\`\`
+
+**使用示例3 - 给用户分配公告编辑员角色（全局）：**
+\`\`\`json
+{ "role_id": 9, "scope_value": "*" }
+\`\`\`
+
+**注意：**
+- 同一用户不能重复分配相同角色+相同作用域的组合
+- 如果之前撤销过相同绑定，会自动恢复
+- 分配后立即生效（清除该用户权限缓存）`,
+  })
+  @ApiParam({ name: 'id', description: '用户ID', example: 5 })
+  @ApiResponse({
+    status: 200,
+    description: '分配成功',
+    schema: { example: { code: 200, data: { success: true }, success: true, message: '请求成功' } },
+  })
+  @ApiResponse({ status: 400, description: '用户已拥有此角色' })
+  @ApiResponse({ status: 404, description: '角色不存在' })
+  assignUserRole(@Param('id') id: number, @Body() params, @Request() req) {
+    return this.AdminService.assignUserRole(Number(id), params, req.payload);
+  }
+
+  @Post('/users/:id/roles/remove/:roleId')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: '撤销用户角色',
+    description: `撤销用户的指定角色。
+
+**业务规则：**
+- 撤销后该用户立即失去该角色对应的所有权限
+- 如果用户只有这一个动态角色，会自动回退到 user_role 字段的默认角色
+- 撤销操作是软删除（status 设为 0），可以通过重新分配恢复
+- 撤销后立即生效（清除该用户权限缓存）
+
+**典型场景：**
+- 用户VIP过期 → 撤销VIP角色
+- 房管违规 → 撤销该房间的 moderator 角色
+- 公告编辑员离职 → 撤销 announcement_editor 角色`,
+  })
+  @ApiParam({ name: 'id', description: '用户ID', example: 5 })
+  @ApiParam({ name: 'roleId', description: '角色ID', example: 8 })
+  @ApiResponse({
+    status: 200,
+    description: '撤销成功',
+    schema: { example: { code: 200, data: { success: true, affected: 1 }, success: true, message: '请求成功' } },
+  })
+  removeUserRole(@Param('id') id: number, @Param('roleId') roleId: number) {
+    return this.AdminService.removeUserRole(Number(id), Number(roleId));
+  }
 }
