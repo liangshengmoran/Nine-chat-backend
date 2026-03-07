@@ -18,7 +18,7 @@ import { PermissionModule } from './common/permission.module';
     ScheduleModule.forRoot(),
     ServeStaticModule.forRoot(
       {
-        rootPath: join(__dirname, '../../', 'docs-site'),
+        rootPath: join(process.cwd(), 'docs-site'),
         serveRoot: '/docs-site',
         serveStaticOptions: {
           index: ['index.html'],
@@ -26,7 +26,7 @@ import { PermissionModule } from './common/permission.module';
         },
       },
       {
-        rootPath: join(__dirname, '../../', 'public'),
+        rootPath: join(process.cwd(), 'public'),
         exclude: ['/api*', '/docs-site*', '/docs*'],
       },
     ),

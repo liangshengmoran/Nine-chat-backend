@@ -39,7 +39,8 @@
     "rxjs": "^7.2.0",
     "sql.js": "^1.13.0",
     "typeorm": "^0.3.20",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    "@nestjs/serve-static": "^5.0.4"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.16",
@@ -47,7 +48,6 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-socket.io": "^11.1.12",
     "@nestjs/schematics": "^11.0.9",
-    "@nestjs/serve-static": "^5.0.4",
     "@nestjs/swagger": "^11.2.6",
     "@nestjs/testing": "^11.1.12",
     "@nestjs/websockets": "^11.1.12",
