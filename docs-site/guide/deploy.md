@@ -21,7 +21,7 @@ npm run start:prod
 ### 前端构建
 
 ```bash
-cd Nine-chat-frontend
+cd Nine-chat-frontend-v3
 npm run build
 ```
 
@@ -37,7 +37,7 @@ npm run build
 
 ```bash
 # 构建前端
-cd Nine-chat-frontend && npm run build
+cd Nine-chat-frontend-v3 && npm run build
 
 # 复制到后端 public
 cp -r dist/* ../Nine-chat-backend/public/

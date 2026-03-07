@@ -22,9 +22,9 @@ cd Nine-Chat
 
 ```
 Nine-Chat/
-├── Nine-chat-backend/     # 后端 (NestJS)
-├── Nine-chat-frontend/    # 前端 (Vue 2)
-└── Nine-chat-sdk/         # Bot SDK
+├── Nine-chat-backend/        # 后端 (NestJS)
+├── Nine-chat-frontend-v3/    # 前端 (Vue 3)
+└── Nine-chat-sdk/            # Bot SDK
     ├── typescript/
     └── python/
 ```
@@ -53,18 +53,18 @@ swagger已经启动,服务请访问:http://localhost:5000/docs
 **打开新的终端窗口**：
 
 ```bash
-cd Nine-chat-frontend
+cd Nine-chat-frontend-v3
 npm install
 npm run dev
 ```
 
-启动成功后访问 `http://localhost:8080`。
+启动成功后访问 `http://localhost:3000`。
 
 ## 第四步：验证
 
 | 地址 | 说明 | 状态 |
 |------|------|------|
-| http://localhost:8080 | 前端页面 | 注册/登录入口 |
+| http://localhost:3000 | 前端页面 | 注册/登录入口 |
 | http://localhost:5000/api | API 基础路径 | JSON 响应 |
 | http://localhost:5000/docs | Swagger 文档 | 交互式 API 测试 |
 | http://localhost:5000/docs-site | 项目文档（本站） | 完整文档 |
@@ -72,7 +72,7 @@ npm run dev
 
 ## 第五步：创建账号
 
-1. 打开 http://localhost:8080
+1. 打开 http://localhost:3000
 2. 点击"注册"，填写用户名、昵称、密码、邮箱
 3. 注册成功后自动登录
 4. 首次注册的用户为普通用户，可通过数据库手动将 `user_role` 改为 `super` 成为超级管理员
@@ -90,6 +90,7 @@ npm run docs:serve       # 启动文档站（端口 4000）
 npm run dev              # 开发模式
 npm run build            # 生产构建
 npm run lint             # 代码检查
+npm run lint:fix          # 代码检查并自动修复
 ```
 
 ## 下一步

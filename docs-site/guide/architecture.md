@@ -7,7 +7,7 @@
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   客户端 (Browser)                       │
-│              Vue 2.7 + Element UI + Vuex                │
+│           Vue 3.5 + Element Plus + Pinia              │
 │           Socket.IO Client    Axios HTTP                │
 └─────────────┬───────────────────────┬──────────────────┘
               │ WebSocket /chat        │ HTTP /api/*
@@ -126,24 +126,44 @@ Nine-chat-backend/
 ## 前端目录结构
 
 ```
-Nine-chat-frontend/src/
-├── App.vue                  # 根组件
-├── main.js                  # 入口，挂载 Vue 实例
-├── permission.js            # 路由权限守卫（登录拦截）
+Nine-chat-frontend-v3/src/
+├── App.vue                  # 根组件（el-config-provider 全局配置）
+├── main.js                  # 入口，创建 Vue 应用实例
 ├── api/                     # API 请求封装（按模块分文件）
-├── assets/                  # 静态资源（图片/字体）
-├── components/              # 公共组件（聊天气泡/播放器/...）
+├── assets/                  # 静态资源（图片/字体/CSS）
+│   └── css/                 # Less 样式文件（主题/reset）
+├── components/              # 公共组件
+│   ├── Barrage/             # 弹幕组件（自定义实现）
+│   ├── Chat/                # 聊天核心组件
+│   │   ├── ChatHeader/      # 头部（在线列表/房间/个人中心）
+│   │   ├── ChatToolbar/     # 工具栏（表情/点歌/收藏）
+│   │   ├── ChatMessageFrame/# 消息输入框
+│   │   ├── MessagePanel/    # 消息列表面板
+│   │   ├── MusicPlayer/     # 音乐播放器
+│   │   ├── ChatLrc/         # 歌词同步显示
+│   │   └── ChatProgress/    # 播放进度条
+│   ├── Emotion/             # 表情包组件（多分类支持）
+│   ├── ChatPopup/           # 通用弹出面板
+│   └── PreImg/              # 图片预览
+├── composables/             # 组合式函数
+│   ├── useSocket.js         # Socket.IO 连接管理
+│   └── useScrollToBottom.js # 滚动到底部
 ├── config/                  # 前端配置常量
 ├── icons/                   # SVG 图标
 ├── router/                  # Vue Router 路由配置
-├── socket-io/               # Socket.IO 连接管理
-├── store/                   # Vuex 状态管理（用户/房间/音乐状态）
-├── theme/                   # Element UI 主题定制
+├── stores/                  # Pinia 状态管理
+│   ├── user.js              # 用户状态
+│   ├── room.js              # 房间状态
+│   ├── message.js           # 消息状态
+│   ├── music.js             # 音乐状态
+│   ├── config.js            # 配置状态
+│   └── ui.js                # UI 状态
 ├── utils/                   # 工具函数
 └── views/                   # 页面组件
-    ├── Login.vue            # 登录/注册
-    ├── Chat.vue             # 聊天主界面
-    └── Admin/               # 管理后台页面
+    ├── login.vue            # 登录
+    ├── register.vue         # 注册
+    ├── user.vue             # 用户中心
+    └── Chat/index.vue       # 聊天主界面
 ```
 
 ## 认证流程
