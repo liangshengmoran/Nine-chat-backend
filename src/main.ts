@@ -18,7 +18,9 @@ async function bootstrap() {
   app.useGlobalGuards(new AuthGuard());
   app.useGlobalPipes(new ValidationPipe());
   app.useGlobalInterceptors(new TransformInterceptor());
-  app.setGlobalPrefix('/api');
+  app.setGlobalPrefix('/api', {
+    exclude: ['/docs-site', '/docs-site/*path', '/docs', '/docs/*path', '/uploads/*path'],
+  });
   createSwagger(app);
   app.enableCors();
   const port = process.env.PORT || 3000;

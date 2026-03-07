@@ -18,16 +18,15 @@ import { PermissionModule } from './common/permission.module';
     ScheduleModule.forRoot(),
     ServeStaticModule.forRoot(
       {
-        rootPath: join(process.cwd(), 'docs-site'),
+        rootPath: join(__dirname, '..', '..', 'docs-site'),
         serveRoot: '/docs-site',
         serveStaticOptions: {
           index: ['index.html'],
-          redirect: false,
         },
       },
       {
-        rootPath: join(process.cwd(), 'public'),
-        exclude: ['/api*', '/docs-site*', '/docs*'],
+        rootPath: join(__dirname, '..', '..', 'public'),
+        exclude: ['/api/*path', '/docs-site/*path', '/docs/*path'],
       },
     ),
     ConfigModule.load(resolve(__dirname, 'config', '**/!(*.d).{ts,js}')),
