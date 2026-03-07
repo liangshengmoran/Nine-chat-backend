@@ -43,6 +43,7 @@ npm run dev
 API服务已经启动,服务请访问:http://localhost:5000/api
 WebSocket服务已经启动,服务请访问:http://localhost:5000
 swagger已经启动,服务请访问:http://localhost:5000/docs
+项目文档服务请访问:http://localhost:5000/docs-site
 ```
 
 > [!TIP]
