@@ -1,6 +1,6 @@
 # 数据库模型
 
-> 共 **22 张表**，TypeORM 自动同步，支持 MySQL 和 SQLite 双模式。
+> 共 **23 张表**，TypeORM 自动同步，支持 MySQL 和 SQLite 双模式。
 
 ## ER 关系概览
 
@@ -13,6 +13,8 @@ tb_user ─────────── tb_message (user_id)
   │     └── tb_room_music_auth (room_id)
   │
   ├── tb_collect (user_id + music_mid → tb_music)
+  │
+  ├── tb_oauth_account (user_id + provider)
   │
   ├── tb_user_role → tb_role → tb_role_permission → tb_permission
   │
@@ -232,6 +234,28 @@ tb_user ─────────── tb_message (user_id)
 | `response_time_ms` | 响应时间 |
 | `retry_count` | 重试次数 |
 | `success` | 是否成功 |
+
+---
+
+## OAuth 认证表
+
+### tb_oauth_account — 第三方登录绑定
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `id` | int | PK, AUTO_INCREMENT | 主键 |
+| `user_id` | int | NOT NULL | 关联的本地用户 ID |
+| `provider` | varchar(20) | NOT NULL | 提供商: github / google |
+| `provider_user_id` | varchar(100) | NOT NULL | 提供商的用户唯一 ID |
+| `provider_username` | varchar(100) | | 提供商用户名 |
+| `provider_email` | varchar(200) | | 提供商邮箱 |
+| `provider_avatar` | varchar(600) | | 提供商头像 URL |
+| `access_token` | varchar(1000) | | 提供商 Access Token |
+| `refresh_token` | varchar(1000) | | 提供商 Refresh Token |
+| `created_at` | datetime | AUTO | 绑定时间 |
+| `updated_at` | datetime | AUTO | 更新时间 |
+
+> UNIQUE(`provider`, `provider_user_id`) — 每个第三方账号只能绑定一个本地用户
 
 ---
 

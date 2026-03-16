@@ -30,6 +30,10 @@
 │  │用户管理   │ │文件上传  │ │ RBAC 权限（全局模块） │   │
 │  │公告/敏感词│ │图片处理  │ │ 角色/权限/守卫        │   │
 │  └──────────┘ └──────────┘ └──────────────────────┘   │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │               OAuthModule                         │   │
+│  │  OAuth 2.1 + PKCE (GitHub / Google)               │   │
+│  └──────────────────────────────────────────────────┘   │
 │                                                         │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │                TypeORM 数据层                      │   │
@@ -116,6 +120,12 @@ Nine-chat-backend/
 │       └── upload/                # 上传模块
 │           ├── upload.controller.ts
 │           └── upload.service.ts
+│       └── oauth/                 # OAuth 第三方登录
+│           ├── oauth.controller.ts  # 5 个端点
+│           ├── oauth.service.ts     # OAuth 2.1 + PKCE
+│           ├── oauth.entity.ts      # tb_oauth_account
+│           ├── oauth.module.ts
+│           └── dto/oauth.dto.ts
 ├── docs-site/                     # 项目文档（Docsify）
 ├── public/                        # 前端静态文件（一体化部署用）
 ├── data/                          # SQLite 数据目录
@@ -182,6 +192,32 @@ Nine-chat-frontend-v3/src/
        │
        └─── WebSocket 连接：query 参数携带 token
             └── ChatGateway 在 handleConnection 中验证
+```
+
+### OAuth 2.1 第三方登录
+
+```
+1. 前端获取可用提供商 GET /api/oauth/providers
+       │
+       ▼
+2. 用户点击 OAuth 按钮 → 跳转 GET /api/oauth/:provider
+       │
+       ▼
+3. 后端生成 PKCE (code_verifier + code_challenge)
+   302 重定向到第三方授权页 (GitHub / Google)
+       │
+       ▼
+4. 用户授权 → 第三方回调 /api/oauth/:provider/callback
+       │
+       ▼
+5. 后端验证 state + code_verifier → 换取 access_token
+   → 获取用户信息 → 匹配/创建本地用户 → 签发 JWT
+       │
+       ▼
+6. 302 重定向到前端 /oauth/callback?token=xxx
+       │
+       ▼
+7. 前端存储 Token → 进入聊天室
 ```
 
 ## 请求/响应流程

@@ -12,6 +12,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { BotModule } from './modules/bot/bot.module';
 import { PermissionModule } from './common/permission.module';
+import { OAuthModule } from './modules/oauth/oauth.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { PermissionModule } from './common/permission.module';
     AdminModule,
     BotModule,
     PermissionModule,
+    OAuthModule,
   ],
   controllers: [],
   providers: [],

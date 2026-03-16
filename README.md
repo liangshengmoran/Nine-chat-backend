@@ -11,6 +11,7 @@
 - 🎤 双音源支持：酷狗 + 网易云音乐
 - 🏠 房间系统：官方房间 + 用户私有房间
 - 🔐 权限管理：超管 > 管理员 > 房管 > 房主 > 普通用户
+- 🔑 OAuth2 登录：支持 GitHub / Google 第三方登录（OAuth 2.1 + PKCE）
 - 📦 轻量部署：支持 MySQL 和 **SQLite**
 
 ## 📦 技术栈
@@ -61,7 +62,23 @@ KUGOU_USERID=your_userid
 NETEASE_API_BASE=http://your-netease-api
 ```
 
-### 4. 启动项目
+### 4. 配置 OAuth2 登录（可选）
+
+如需启用 GitHub / Google 第三方登录：
+
+```env
+# GitHub (https://github.com/settings/developers)
+GITHUB_CLIENT_ID=your_client_id
+GITHUB_CLIENT_SECRET=your_client_secret
+
+# Google (https://console.cloud.google.com/apis/credentials)
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_client_secret
+
+OAUTH_FRONTEND_URL=http://localhost:5173
+```
+
+### 5. 启动项目
 
 ```bash
 # 开发模式
@@ -75,7 +92,7 @@ node dist/main.js
 pnpm lint
 ```
 
-### 5. 访问服务
+### 6. 访问服务
 
 - **API**: http://localhost:5000/api
 - **Swagger 文档**: http://localhost:5000/docs
@@ -132,6 +149,7 @@ pnpm lint
 - ✅ 新增房管（moderator）角色
 - ✅ 优化权限系统
 - ✅ ESLint 代码规范检查
+- ✅ OAuth 2.1 + PKCE 第三方登录（GitHub / Google）
 
 ### 2.x (2022)
 - 个人私有房间

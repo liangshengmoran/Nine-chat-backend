@@ -11,6 +11,7 @@
 
 - **API 接口**
   - [用户 API](api/user.md)
+  - [OAuth 登录 API](api/oauth.md)
   - [聊天 API](api/chat.md)
   - [音乐 API](api/music.md)
   - [管理后台 API](api/admin.md)

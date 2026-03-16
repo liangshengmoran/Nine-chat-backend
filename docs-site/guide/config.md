@@ -48,6 +48,24 @@ Nine-chat-backend/.env
 |------|------|--------|
 | `ROOM_CLOSE_DELAY_MINUTES` | 空房间自动关闭延迟（分钟） | `5` |
 
+### OAuth2 第三方登录配置（可选）
+
+> 配置后即可启用对应的第三方登录按钮，未配置的提供商自动隐藏。
+
+| 变量 | 说明 | 默认值 | 必填 |
+|------|------|--------|------|
+| `GITHUB_CLIENT_ID` | GitHub OAuth App Client ID | — | 使用 GitHub 登录时必填 |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret | — | 使用 GitHub 登录时必填 |
+| `GITHUB_CALLBACK_URL` | GitHub 回调地址 | `http://localhost:5000/api/oauth/github/callback` | |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | — | 使用 Google 登录时必填 |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | — | 使用 Google 登录时必填 |
+| `GOOGLE_CALLBACK_URL` | Google 回调地址 | `http://localhost:5000/api/oauth/google/callback` | |
+| `OAUTH_FRONTEND_URL` | OAuth 登录后前端回调地址 | `http://localhost:5173` | |
+
+> [!TIP]
+> GitHub OAuth App 创建地址：https://github.com/settings/developers
+> Google OAuth 凭据创建地址：https://console.cloud.google.com/apis/credentials
+
 ---
 
 ## 配置示例

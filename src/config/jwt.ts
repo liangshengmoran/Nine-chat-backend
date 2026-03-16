@@ -15,6 +15,12 @@ export const whiteList = [
   '/api/bot/chooseMusic',
   '/api/bot/getMessages',
   '/api/bot/getRoomInfo',
+  // OAuth - 授权和回调接口无需 JWT
+  '/api/oauth/providers',
+  '/api/oauth/github',
+  '/api/oauth/github/callback',
+  '/api/oauth/google',
+  '/api/oauth/google/callback',
 ];
 
 /**
